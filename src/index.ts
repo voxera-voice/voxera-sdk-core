@@ -4,6 +4,10 @@
  * The core SDK for connecting to the Voxera Voice platform.
  * Provides WebRTC-based voice AI interactions.
  *
+ * 
+ * 
+ * 
+ * 
  * @example
  * ```typescript
  * import { MayaVoiceClient } from '@voxera/sdk-core';
