@@ -1,0 +1,47 @@
+{
+  "name": "@voxera/sdk-core",
+  "version": "1.0.0",
+  "description": "Core SDK for Voxera Voice Platform",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "lint": "eslint src/",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["voxera", "voice-ai", "webrtc", "sdk"],
+  "author": "Voxera",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/voxera-voice/voxera-sdk-core.git"
+  },
+  "homepage": "https://github.com/voxera-voice/voxera-sdk-core#readme",
+  "bugs": {
+    "url": "https://github.com/voxera-voice/voxera-sdk-core/issues"
+  },
+  "dependencies": {
+    "eventemitter3": "^5.0.1",
+    "mediasoup-client": "^3.18.3",
+    "socket.io-client": "^4.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.2"
+  },
+  "peerDependencies": {
+    "typescript": ">=4.7.0"
+  },
+  "files": ["dist"],
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  }
+}
