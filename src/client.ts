@@ -45,6 +45,8 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
   private screenShareProducer: any = null;
   private aiAudioElements: Map<string, HTMLAudioElement> = new Map();
   private aiConsumers: Map<string, any> = new Map(); // Track AI audio consumers
+  private peerAudioElements: Map<string, HTMLAudioElement> = new Map();
+  private peerConsumers: Map<string, any> = new Map(); // Track peer audio consumers
 
   private _connectionStatus: ConnectionStatus = "idle";
   private _conversationStatus: ConversationStatus = "idle";
@@ -1521,8 +1523,12 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
             this.remoteStream = new MediaStream([consumer.track]);
             this.setupRemoteAudio(this.remoteStream, producerId);
             console.log('[Maya] ✅ AI audio consumer setup complete');
-          } else {
-            console.log('[Maya] Non-AI audio producer, skipping remote audio setup');
+          } else if (kind === 'audio') {
+            console.log('[Maya] Setting up peer audio stream for producer:', producerId);
+            this.peerConsumers.set(producerId, consumer);
+            const peerStream = new MediaStream([consumer.track]);
+            this.setupPeerAudio(peerStream, producerId);
+            console.log('[Maya] ✅ Peer audio consumer setup complete');
           }
         } catch (error) {
           console.error('[Maya] ❌ Error consuming producer:', error);
@@ -1711,6 +1717,51 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       this.pendingAudioStarts.push(startAudio);
 
       // Emit warning that user interaction is needed
+      this.emit('warning', {
+        type: 'autoplay-blocked',
+        message: 'Click anywhere to enable audio playback'
+      });
+    }
+  }
+
+  private setupPeerAudio(stream: MediaStream, producerId: string): void {
+    console.log('[Maya] Setting up peer audio stream for producer:', producerId);
+
+    const audioElement = new Audio();
+    audioElement.style.display = 'none';
+    document.body.appendChild(audioElement);
+
+    this.peerAudioElements.set(producerId, audioElement);
+    audioElement.srcObject = stream;
+    audioElement.volume = 1;
+
+    stream.addEventListener('inactive', () => {
+      console.log('[Maya] Peer stream ended for producer', producerId);
+      audioElement.pause();
+      audioElement.srcObject = null;
+      audioElement.remove();
+      this.peerAudioElements.delete(producerId);
+      this.peerConsumers.delete(producerId);
+    });
+
+    const startAudio = () => {
+      audioElement.play().then(() => {
+        console.log('[Maya] ✅ Peer audio playback started for producer', producerId);
+      }).catch((error) => {
+        console.error('[Maya] ❌ Peer audio playback failed:', error);
+        if (error.name === 'NotAllowedError') {
+          this.emit('warning', {
+            type: 'autoplay-blocked',
+            message: 'Click anywhere to enable audio playback'
+          });
+        }
+      });
+    };
+
+    if (this.hasUserInteracted) {
+      startAudio();
+    } else {
+      this.pendingAudioStarts.push(startAudio);
       this.emit('warning', {
         type: 'autoplay-blocked',
         message: 'Click anywhere to enable audio playback'
@@ -2036,6 +2087,12 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
     // Clear meeting state
     this._roomMode = null;
     this._isHost = false;
+
+    // Clean up peer consumers and audio elements
+    this.peerConsumers.forEach((consumer) => { try { consumer.close(); } catch (_) {} });
+    this.peerConsumers.clear();
+    this.peerAudioElements.forEach((el) => { try { el.pause(); el.srcObject = null; el.remove(); } catch (_) {} });
+    this.peerAudioElements.clear();
   }
 
   private generateId(): string {
