@@ -2,12 +2,12 @@ import EventEmitter from "eventemitter3";
 import { io, Socket as SocketIOSocket } from "socket.io-client";
 import * as mediasoupClient from 'mediasoup-client';
 import type {
-  MayaVoiceConfig,
+  VoxeraConfig,
   ConnectionStatus,
   ConversationStatus,
   SpeakingStatus,
   ConversationMessage,
-  MayaVoiceEvents,
+  VoxeraEvents,
   WebRTCStats,
   InitSessionResponse,
   RoomMode,
@@ -19,16 +19,16 @@ import type {
   MeetingSummary,
   MeetingMinutes,
 } from "./types";
-import { MayaVoiceError, ErrorCodes } from "./types";
+import { VoxeraError, ErrorCodes } from "./types";
 
 /**
- * Maya Voice Client - Core SDK
+ * Voxera Client - Core SDK
  *
- * This is the main client class for connecting to the Maya Voice platform.
+ * This is the main client class for connecting to the Voxera platform.
  * It handles mediasoup WebRTC connections, signaling, and voice AI interactions.
  */
-export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
-  private config: MayaVoiceConfig;
+export class VoxeraClient extends EventEmitter<VoxeraEvents> {
+  private config: VoxeraConfig;
   private socket: SocketIOSocket | null = null;
 
   // Mediasoup properties (using any to avoid type import issues)
@@ -47,6 +47,8 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
   private aiConsumers: Map<string, any> = new Map(); // Track AI audio consumers
   private peerAudioElements: Map<string, HTMLAudioElement> = new Map();
   private peerConsumers: Map<string, any> = new Map(); // Track peer audio consumers
+  private peerVideoConsumers: Map<string, any> = new Map(); // Track peer video consumers
+  private peerVideoStreams: Map<string, MediaStream> = new Map(); // producerId → video stream
   private peerProducerToClient: Map<string, string> = new Map(); // producerId → clientId
   private peerAudioAnalysers: Map<string, { analyser: AnalyserNode; interval: ReturnType<typeof setInterval> }> = new Map();
 
@@ -71,7 +73,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
   private hasUserInteracted: boolean = false;
   private pendingAudioStarts: Array<() => void> = [];
 
-  constructor(config: MayaVoiceConfig) {
+  constructor(config: VoxeraConfig) {
     super();
     this.validateConfig(config);
     this.config = config;
@@ -235,6 +237,11 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       this._meetingCallbacks.onLiveTranscription?.(data);
     });
 
+    this.socket.on('transcribe-only-toggled', (data: any) => {
+      this.emit('transcribe-only:toggled', data);
+      this._meetingCallbacks.onTranscribeOnlyToggled?.(data);
+    });
+
     // Ask AI events
     this.socket.on('ask-ai-started', (data: any) => {
       this.emit('ask-ai:started', data);
@@ -390,6 +397,13 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
   }
 
   /**
+   * Toggle transcribe-only mode — transcription without AI processing
+   */
+  async toggleTranscribeOnly(sessionId: string, enabled: boolean): Promise<any> {
+    return this.socket?.emitWithAck('toggle-transcribe-only', { sessionId, enabled });
+  }
+
+  /**
    * Trigger Ask AI mode — collects transcript and sends to AI
    */
   async askAi(sessionId: string): Promise<any> {
@@ -510,7 +524,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
    */
   private setupUserInteractionDetector(): void {
     const enableAudio = () => {
-      console.log('[Maya] User interaction detected, enabling audio playback');
+      console.log('[Voxera] User interaction detected, enabling audio playback');
       this.hasUserInteracted = true;
 
       // Start all pending audio elements
@@ -529,7 +543,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
   }
 
   /**
-   * Connect to the Maya Voice server
+   * Connect to the Voxera server
    */
   async connect(): Promise<void> {
     if (
@@ -595,7 +609,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
    */
   async setupRoomWebRTC(): Promise<void> {
     if (!this.socket) {
-      throw new MayaVoiceError(
+      throw new VoxeraError(
         "Socket not connected — call connectSocket() first",
         ErrorCodes.CONNECTION_FAILED
       );
@@ -635,7 +649,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
    */
   async startConversation(): Promise<void> {
     if (this._connectionStatus !== "connected") {
-      throw new MayaVoiceError(
+      throw new VoxeraError(
         "Must be connected before starting conversation",
         ErrorCodes.CONNECTION_FAILED
       );
@@ -699,7 +713,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
    */
   sendMessage(content: string): void {
     if (this._connectionStatus !== "connected") {
-      throw new MayaVoiceError(
+      throw new VoxeraError(
         "Must be connected to send messages",
         ErrorCodes.CONNECTION_FAILED
       );
@@ -725,27 +739,27 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
    * Mute/unmute the microphone
    */
   setMuted(muted: boolean): void {
-    console.log(`[Maya] ${muted ? 'Muting' : 'Unmuting'} audio`);
+    console.log(`[Voxera] ${muted ? 'Muting' : 'Unmuting'} audio`);
 
     // Disable/enable the audio track
     if (this.localStream) {
       this.localStream.getAudioTracks().forEach((track) => {
         track.enabled = !muted;
-        console.log(`[Maya] Audio track enabled: ${track.enabled}`);
+        console.log(`[Voxera] Audio track enabled: ${track.enabled}`);
       });
     }
 
     // Pause/resume the audio producer
     if (this.audioProducer) {
       if (muted) {
-        console.log('[Maya] Pausing audio producer');
+        console.log('[Voxera] Pausing audio producer');
         this.audioProducer.pause();
       } else {
-        console.log('[Maya] Resuming audio producer');
+        console.log('[Voxera] Resuming audio producer');
         this.audioProducer.resume();
       }
     } else {
-      console.warn('[Maya] No audio producer found');
+      console.warn('[Voxera] No audio producer found');
     }
   }
 
@@ -755,12 +769,12 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
   async enableVideo(): Promise<void> {
     if (this.localVideoStream) {
       // Video already enabled
-      console.log('[Maya] Video already enabled');
+      console.log('[Voxera] Video already enabled');
       return;
     }
 
     try {
-      console.log('[Maya] Requesting camera access...');
+      console.log('[Voxera] Requesting camera access...');
       const videoConfig = this.config.videoConfig || {};
 
       // Get video stream
@@ -773,7 +787,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
         },
       });
 
-      console.log('[Maya] Camera access granted, stream obtained:', this.localVideoStream.id);
+      console.log('[Voxera] Camera access granted, stream obtained:', this.localVideoStream.id);
 
       // Emit local video stream
       this.emit('video:local', this.localVideoStream);
@@ -783,8 +797,8 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       if (this.sendTransport && this._connectionStatus === 'connected') {
         const videoTrack = this.localVideoStream.getVideoTracks()[0];
 
-        console.log('[Maya] Creating video producer...');
-        console.log('[Maya] Video track state:', {
+        console.log('[Voxera] Creating video producer...');
+        console.log('[Voxera] Video track state:', {
           id: videoTrack.id,
           kind: videoTrack.kind,
           label: videoTrack.label,
@@ -811,16 +825,16 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
           },
         });
 
-        console.log('[Maya] Video producer created:', this.videoProducer.id);
-        console.log('[Maya] Simulcast:', useSimulcast ? 'enabled (3 layers)' : 'disabled (AI mode)');
-        console.log('[Maya] Video producer paused:', this.videoProducer.paused);
-        console.log('[Maya] Send transport state:', this.sendTransport.connectionState);
+        console.log('[Voxera] Video producer created:', this.videoProducer.id);
+        console.log('[Voxera] Simulcast:', useSimulcast ? 'enabled (3 layers)' : 'disabled (AI mode)');
+        console.log('[Voxera] Video producer paused:', this.videoProducer.paused);
+        console.log('[Voxera] Send transport state:', this.sendTransport.connectionState);
 
         // Check producer stats after 2 seconds to verify video is flowing
         setTimeout(async () => {
           try {
             const stats = await this.videoProducer!.getStats();
-            console.log('[Maya] Video producer stats after 2s:', stats);
+            console.log('[Voxera] Video producer stats after 2s:', stats);
 
             // Check if any bytes are being sent
             let bytesSent = 0;
@@ -831,32 +845,32 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
             });
 
             if (bytesSent === 0) {
-              console.error('[Maya] ❌ Video producer NOT sending any data!');
-              console.error('[Maya] Track state:', {
+              console.error('[Voxera] ❌ Video producer NOT sending any data!');
+              console.error('[Voxera] Track state:', {
                 enabled: videoTrack.enabled,
                 muted: videoTrack.muted,
                 readyState: videoTrack.readyState
               });
-              console.error('[Maya] Transport state:', this.sendTransport?.connectionState);
+              console.error('[Voxera] Transport state:', this.sendTransport?.connectionState);
             } else {
-              console.log(`[Maya] ✅ Video producer sent ${bytesSent} bytes`);
+              console.log(`[Voxera] ✅ Video producer sent ${bytesSent} bytes`);
             }
           } catch (err) {
-            console.error('[Maya] Failed to get video producer stats:', err);
+            console.error('[Voxera] Failed to get video producer stats:', err);
           }
         }, 2000);
 
         // Resume producer if paused
         if (this.videoProducer.paused) {
-          console.log('[Maya] Resuming video producer...');
+          console.log('[Voxera] Resuming video producer...');
           await this.videoProducer.resume();
-          console.log('[Maya] Video producer resumed');
+          console.log('[Voxera] Video producer resumed');
         }
       } else {
-        console.log('[Maya] Video stream obtained but not connected yet. Will produce when connected.');
+        console.log('[Voxera] Video stream obtained but not connected yet. Will produce when connected.');
       }
     } catch (error: any) {
-      console.error('[Maya] Camera access failed:', error);
+      console.error('[Voxera] Camera access failed:', error);
       const errorMessage = error.name === 'NotAllowedError'
         ? 'Camera access denied. Please grant camera permissions in your browser.'
         : error.name === 'NotFoundError'
@@ -865,7 +879,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
             ? 'Camera is already in use by another application.'
             : `Failed to access camera: ${error.message}`;
 
-      throw new MayaVoiceError(
+      throw new VoxeraError(
         errorMessage,
         ErrorCodes.MEDIA_ACCESS_DENIED
       );
@@ -876,7 +890,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
    * Disable video
    */
   async disableVideo(): Promise<void> {
-    console.log('[Maya] Disabling video...');
+    console.log('[Voxera] Disabling video...');
     if (this.localVideoStream) {
       this.localVideoStream.getTracks().forEach((track) => track.stop());
       this.localVideoStream = null;
@@ -885,7 +899,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
     if (this.videoProducer) {
       this.videoProducer.close();
       this.videoProducer = null;
-      console.log('[Maya] Video producer closed');
+      console.log('[Voxera] Video producer closed');
     }
   }
 
@@ -909,12 +923,12 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
    */
   async startScreenShare(): Promise<void> {
     if (this.screenShareStream) {
-      console.log('[Maya] Screen sharing already active');
+      console.log('[Voxera] Screen sharing already active');
       return;
     }
 
     try {
-      console.log('[Maya] Requesting screen share access...');
+      console.log('[Voxera] Requesting screen share access...');
       const screenConfig = this.config.screenShareConfig || {};
 
       this.screenShareStream = await (navigator.mediaDevices as any).getDisplayMedia({
@@ -927,7 +941,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       });
 
       const stream = this.screenShareStream!;
-      console.log('[Maya] Screen share access granted, stream:', stream.id);
+      console.log('[Voxera] Screen share access granted, stream:', stream.id);
 
       this.emit('screen:local', stream);
       this.config.onLocalScreenStream?.(stream);
@@ -947,29 +961,29 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
           appData: { mediaType: 'screen' }, // Tag so server can distinguish
         });
 
-        console.log('[Maya] Screen share producer created:', this.screenShareProducer.id);
+        console.log('[Voxera] Screen share producer created:', this.screenShareProducer.id);
 
         if (this.screenShareProducer.paused) {
           await this.screenShareProducer.resume();
-          console.log('[Maya] Screen share producer resumed');
+          console.log('[Voxera] Screen share producer resumed');
         }
       } else {
-        console.log('[Maya] Screen share stream obtained but transport not ready yet.');
+        console.log('[Voxera] Screen share stream obtained but transport not ready yet.');
       }
 
       // Handle the user stopping screen share via the browser's built-in UI
       const screenTrack = stream.getVideoTracks()[0];
       screenTrack.addEventListener('ended', () => {
-        console.log('[Maya] Screen share track ended by user');
+        console.log('[Voxera] Screen share track ended by user');
         this.stopScreenShare();
       });
     } catch (error: any) {
       // User cancelled the picker — not an error worth throwing
       if (error.name === 'NotAllowedError') {
-        console.log('[Maya] Screen share permission denied or picker cancelled');
+        console.log('[Voxera] Screen share permission denied or picker cancelled');
         return;
       }
-      throw new MayaVoiceError(
+      throw new VoxeraError(
         `Screen share failed: ${error.message}`,
         ErrorCodes.MEDIA_ACCESS_DENIED
       );
@@ -980,7 +994,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
    * Stop screen sharing
    */
   async stopScreenShare(): Promise<void> {
-    console.log('[Maya] Stopping screen share...');
+    console.log('[Voxera] Stopping screen share...');
 
     if (this.screenShareStream) {
       this.screenShareStream.getTracks().forEach((track) => track.stop());
@@ -992,7 +1006,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
     if (this.screenShareProducer) {
       this.screenShareProducer.close();
       this.screenShareProducer = null;
-      console.log('[Maya] Screen share producer closed');
+      console.log('[Voxera] Screen share producer closed');
     }
   }
 
@@ -1051,7 +1065,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
   /**
    * Update configuration
    */
-  updateConfig(config: Partial<MayaVoiceConfig>): void {
+  updateConfig(config: Partial<VoxeraConfig>): void {
     this.config = { ...this.config, ...config };
 
     // Send config update to server if connected
@@ -1068,12 +1082,12 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
 
   // Private Methods
 
-  private validateConfig(config: MayaVoiceConfig): void {
+  private validateConfig(config: VoxeraConfig): void {
     if (!config.appKey) {
-      throw new MayaVoiceError("appKey is required", ErrorCodes.INVALID_CONFIG);
+      throw new VoxeraError("appKey is required", ErrorCodes.INVALID_CONFIG);
     }
     if (!config.serverUrl) {
-      throw new MayaVoiceError(
+      throw new VoxeraError(
         "serverUrl is required",
         ErrorCodes.INVALID_CONFIG
       );
@@ -1105,7 +1119,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
     });
 
     if (!response.ok) {
-      throw new MayaVoiceError(
+      throw new VoxeraError(
         "Failed to initialize session",
         ErrorCodes.AUTHENTICATION_FAILED
       );
@@ -1115,7 +1129,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
 
     // Handle new API response format
     if (result.success === false && result.error) {
-      throw new MayaVoiceError(
+      throw new VoxeraError(
         result.error.message,
         result.error.code as any
       );
@@ -1148,7 +1162,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       const timeout = setTimeout(() => {
         this.socket?.disconnect();
         reject(
-          new MayaVoiceError("Socket.IO connection timeout", ErrorCodes.TIMEOUT)
+          new VoxeraError("Socket.IO connection timeout", ErrorCodes.TIMEOUT)
         );
       }, this.config.connectionOptions?.timeout || 30000);
 
@@ -1164,9 +1178,9 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
             userId: 'demo-user',
             enableVideoAI: this.config.videoConfig?.enableVideoAI || false,
           });
-          console.log('[Maya] Session initialized successfully');
+          console.log('[Voxera] Session initialized successfully');
         } catch (error) {
-          console.error('[Maya] Failed to initialize session:', error);
+          console.error('[Voxera] Failed to initialize session:', error);
         }
 
         resolve();
@@ -1181,7 +1195,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       this.socket.on('connect_error', (error) => {
         clearTimeout(timeout);
         reject(
-          new MayaVoiceError(
+          new VoxeraError(
             `Socket.IO connection failed: ${error.message}`,
             ErrorCodes.CONNECTION_FAILED
           )
@@ -1209,14 +1223,14 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       const timeout = setTimeout(() => {
         this.socket?.disconnect();
         reject(
-          new MayaVoiceError("Socket.IO connection timeout", ErrorCodes.TIMEOUT)
+          new VoxeraError("Socket.IO connection timeout", ErrorCodes.TIMEOUT)
         );
       }, this.config.connectionOptions?.timeout || 30000);
 
       this.socket.on('connect', () => {
         clearTimeout(timeout);
         this.reconnectAttempts = 0;
-        console.log('[Maya] Socket connected (no session init)');
+        console.log('[Voxera] Socket connected (no session init)');
         resolve();
       });
 
@@ -1229,7 +1243,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       this.socket.on('connect_error', (error) => {
         clearTimeout(timeout);
         reject(
-          new MayaVoiceError(
+          new VoxeraError(
             `Socket.IO connection failed: ${error.message}`,
             ErrorCodes.CONNECTION_FAILED
           )
@@ -1247,7 +1261,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       // 1. Get RTP capabilities from server
       const rtpCapabilities = await this.emitWithTimeout('getRtpCapabilities', {});
       if (!rtpCapabilities) {
-        throw new MayaVoiceError(
+        throw new VoxeraError(
           "Failed to get RTP capabilities",
           ErrorCodes.WEBRTC_ERROR
         );
@@ -1262,28 +1276,28 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       }
 
       // 3. Create and load mediasoup Device
-      console.log('[Maya] Creating MediaSoup Device...');
+      console.log('[Voxera] Creating MediaSoup Device...');
       this.device = new mediasoupClient.Device();
       await this.device.load({ routerRtpCapabilities: rtpCapabilities });
-      console.log('[Maya] ✅ Device loaded successfully');
+      console.log('[Voxera] ✅ Device loaded successfully');
 
       // 4. Get ICE servers configuration
       const iceServers = await this.emitWithTimeout('getIceServers', {});
-      console.log('[Maya] ICE servers received:', JSON.stringify(iceServers, null, 2));
+      console.log('[Voxera] ICE servers received:', JSON.stringify(iceServers, null, 2));
 
       // 5. Create send transport with relay-only policy for STUNner
       const sendParams = await this.emitWithTimeout('createTransport', {});
-      console.log('[Maya] Send transport params received:', sendParams);
-      console.log('[Maya] ICE servers config:', JSON.stringify(iceServers, null, 2));
+      console.log('[Voxera] Send transport params received:', sendParams);
+      console.log('[Voxera] ICE servers config:', JSON.stringify(iceServers, null, 2));
       const sendTransportOptions: any = {
         ...sendParams,
         iceServers: iceServers || [{ urls: "stun:stun.l.google.com:19302" }],
         iceTransportPolicy: 'relay', // Force relay-only mode through STUNner (matches working reference)
       };
-      console.log('[Maya] Creating send transport with options:', sendTransportOptions);
+      console.log('[Voxera] Creating send transport with options:', sendTransportOptions);
 
       this.sendTransport = this.device.createSendTransport(sendTransportOptions);
-      console.log('[Maya] ✅ Send transport created, ID:', this.sendTransport.id);
+      console.log('[Voxera] ✅ Send transport created, ID:', this.sendTransport.id);
 
       // Handle send transport connect event
       this.sendTransport.on('connect', ({ dtlsParameters }: any, callback: () => void) => {
@@ -1296,11 +1310,11 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
 
       // Monitor send transport connection state changes
       this.sendTransport.on('connectionstatechange', (state: string) => {
-        console.log('[Maya] 📡 Send transport connection state changed:', state);
+        console.log('[Voxera] 📡 Send transport connection state changed:', state);
         if (state === 'failed' || state === 'closed') {
-          console.error('[Maya] ❌ Send transport connection', state, '— audio will not flow. Check STUNner TURN reachability.');
+          console.error('[Voxera] ❌ Send transport connection', state, '— audio will not flow. Check STUNner TURN reachability.');
         } else if (state === 'connected') {
-          console.log('[Maya] ✅ Send transport ICE/DTLS connected — audio flowing through STUNner.');
+          console.log('[Voxera] ✅ Send transport ICE/DTLS connected — audio flowing through STUNner.');
         }
       });
 
@@ -1314,7 +1328,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
           });
           // Server may return { error: '...' } instead of throwing — treat it as a failure
           if (!response || response.error) {
-            console.error('[Maya] ❌ Server rejected produce:', response?.error ?? 'no response');
+            console.error('[Voxera] ❌ Server rejected produce:', response?.error ?? 'no response');
             errback(new Error(response?.error ?? 'produce failed: no response from server'));
             return;
           }
@@ -1327,19 +1341,19 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       // 5.5. Produce audio track immediately (this triggers the 'connect' event and establishes TURN connection)
       const audioTrack = this.localStream?.getAudioTracks()[0];
       if (audioTrack) {
-        console.log('[Maya] Producing audio track to establish TURN connection...');
+        console.log('[Voxera] Producing audio track to establish TURN connection...');
         this.audioProducer = await this.sendTransport.produce({ track: audioTrack });
-        console.log('[Maya] Audio track produced successfully');
+        console.log('[Voxera] Audio track produced successfully');
       } else {
-        console.warn('[Maya] No audio track available to produce');
+        console.warn('[Voxera] No audio track available to produce');
       }
 
       // 5.6. Produce video track if video stream exists
       if (this.localVideoStream) {
         const videoTrack = this.localVideoStream.getVideoTracks()[0];
         if (videoTrack) {
-          console.log('[Maya] Producing existing video track...');
-          console.log('[Maya] Video track state:', {
+          console.log('[Voxera] Producing existing video track...');
+          console.log('[Voxera] Video track state:', {
             id: videoTrack.id,
             kind: videoTrack.kind,
             label: videoTrack.label,
@@ -1365,10 +1379,10 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
               videoGoogleStartBitrate: 1000,
             },
           });
-          console.log('[Maya] Video track produced successfully:', this.videoProducer.id);
-          console.log('[Maya] Simulcast:', useSimulcast ? 'enabled (3 layers)' : 'disabled (AI mode)');
-          console.log('[Maya] Video producer paused:', this.videoProducer.paused);
-          console.log('[Maya] Send transport state:', this.sendTransport.connectionState);
+          console.log('[Voxera] Video track produced successfully:', this.videoProducer.id);
+          console.log('[Voxera] Simulcast:', useSimulcast ? 'enabled (3 layers)' : 'disabled (AI mode)');
+          console.log('[Voxera] Video producer paused:', this.videoProducer.paused);
+          console.log('[Voxera] Send transport state:', this.sendTransport.connectionState);
 
           // Check producer stats after 2 seconds to verify video is flowing
           setTimeout(async () => {
@@ -1376,7 +1390,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
               if (!this.videoProducer) return;
 
               const stats = await this.videoProducer.getStats();
-              console.log('[Maya] Video producer stats after 2s:', stats);
+              console.log('[Voxera] Video producer stats after 2s:', stats);
 
               // Check if any bytes are being sent
               let bytesSent = 0;
@@ -1387,62 +1401,62 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
               });
 
               if (bytesSent === 0) {
-                console.error('[Maya] ❌ Video producer NOT sending any data!');
-                console.error('[Maya] Track state:', {
+                console.error('[Voxera] ❌ Video producer NOT sending any data!');
+                console.error('[Voxera] Track state:', {
                   enabled: videoTrack.enabled,
                   muted: videoTrack.muted,
                   readyState: videoTrack.readyState
                 });
-                console.error('[Maya] Transport state:', this.sendTransport?.connectionState);
+                console.error('[Voxera] Transport state:', this.sendTransport?.connectionState);
               } else {
-                console.log(`[Maya] ✅ Video producer sent ${bytesSent} bytes`);
+                console.log(`[Voxera] ✅ Video producer sent ${bytesSent} bytes`);
               }
             } catch (err) {
-              console.error('[Maya] Failed to get video producer stats:', err);
+              console.error('[Voxera] Failed to get video producer stats:', err);
             }
           }, 2000);
 
           // Resume producer if paused
           if (this.videoProducer.paused) {
-            console.log('[Maya] Resuming video producer...');
+            console.log('[Voxera] Resuming video producer...');
             await this.videoProducer.resume();
-            console.log('[Maya] Video producer resumed');
+            console.log('[Voxera] Video producer resumed');
           }
         }
       }
 
       // 6. Create receive transport for AI audio with relay-only policy
       const recvParams = await this.emitWithTimeout('createTransport', {});
-      console.log('[Maya] Recv transport params received:', recvParams);
+      console.log('[Voxera] Recv transport params received:', recvParams);
       const recvTransportOptions: any = {
         ...recvParams,
         iceServers: iceServers || [{ urls: "stun:stun.l.google.com:19302" }],
         iceTransportPolicy: 'relay', // Force relay-only mode through STUNner (matches working reference)
       };
-      console.log('[Maya] Creating recv transport with options:', recvTransportOptions);
+      console.log('[Voxera] Creating recv transport with options:', recvTransportOptions);
 
       this.recvTransport = this.device.createRecvTransport(recvTransportOptions);
-      console.log('[Maya] ✅ Recv transport created, ID:', this.recvTransport.id);
-      console.log('[Maya] Recv transport connection state:', this.recvTransport.connectionState);
+      console.log('[Voxera] ✅ Recv transport created, ID:', this.recvTransport.id);
+      console.log('[Voxera] Recv transport connection state:', this.recvTransport.connectionState);
 
       // Store recv transport globally for debugging
       (window as any).mayaRecvTransport = this.recvTransport;
-      console.log('[Maya] Recv transport stored in window.mayaRecvTransport for debugging');
+      console.log('[Voxera] Recv transport stored in window.mayaRecvTransport for debugging');
 
       // Handle receive transport connect event  
       this.recvTransport.on('connect', ({ dtlsParameters }: any, callback: () => void) => {
-        console.log('[Maya] 🔗 Recv transport connect event fired, sending DTLS params to server');
+        console.log('[Voxera] 🔗 Recv transport connect event fired, sending DTLS params to server');
         this.socket?.emit('connectTransport', {
           dtlsParameters,
           transportId: this.recvTransport!.id,
         });
         callback();
-        console.log('[Maya] ✅ Recv transport connect callback completed');
+        console.log('[Voxera] ✅ Recv transport connect callback completed');
       });
 
       // Monitor connection state changes
       this.recvTransport.on('connectionstatechange', (state: any) => {
-        console.log('[Maya] 📡 Recv transport connection state changed:', state);
+        console.log('[Voxera] 📡 Recv transport connection state changed:', state);
       });
 
       // 7. Listen for new AI producers
@@ -1456,25 +1470,25 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       try {
         const existingProducers = await this.emitWithTimeout<Array<{ producerId: string; source?: string; kind?: string; producerClientId?: string }>>('get-producers', {});
         if (existingProducers && existingProducers.length > 0) {
-          console.log(`[Maya] 🔄 Found ${existingProducers.length} existing producers to consume`);
+          console.log(`[Voxera] 🔄 Found ${existingProducers.length} existing producers to consume`);
           for (const p of existingProducers) {
             await this.handleNewProducer(p.producerId, p.source, p.producerClientId);
           }
         }
       } catch (err) {
-        console.warn('[Maya] Could not fetch existing producers:', err);
+        console.warn('[Voxera] Could not fetch existing producers:', err);
       }
 
       // 8. Listen for conversation messages from server
       this.socket?.on('conversation-message', (data: { sessionId: string; role: 'user' | 'assistant'; content: string; timestamp: number; displayName?: string }) => {
-        console.log('[Maya] 💬 Conversation message received:', data);
+        console.log('[Voxera] 💬 Conversation message received:', data);
 
         const messageId = `${data.role}-${data.timestamp}-${Math.random().toString(36).substr(2, 6)}`;
 
         // Deduplicate — skip if content+role+timestamp match a recent message
         const dedupKey = `${data.role}-${data.timestamp}-${data.content?.slice(0, 50)}`;
         if (this._seenMessageIds.has(dedupKey)) {
-          console.log('[Maya] ⏭️ Duplicate message skipped:', dedupKey);
+          console.log('[Voxera] ⏭️ Duplicate message skipped:', dedupKey);
           return;
         }
         this._seenMessageIds.add(dedupKey);
@@ -1494,11 +1508,11 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
         this.emit('message', message);
         // Call the onMessage callback (used by React hook)
         this.config.onMessage?.(message);
-        console.log('[Maya] ✅ Message added to conversation history, total messages:', this._messages.length);
+        console.log('[Voxera] ✅ Message added to conversation history, total messages:', this._messages.length);
       });
 
     } catch (error) {
-      throw new MayaVoiceError(
+      throw new VoxeraError(
         `WebRTC setup failed: ${error instanceof Error ? error.message : String(error)}`,
         ErrorCodes.WEBRTC_ERROR
       );
@@ -1519,7 +1533,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       // Start audio level monitoring
       this.startAudioLevelMonitoring();
     } catch (error) {
-      throw new MayaVoiceError(
+      throw new VoxeraError(
         "Microphone access denied",
         ErrorCodes.MEDIA_ACCESS_DENIED
       );
@@ -1527,7 +1541,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
   }
 
   private setupRemoteAudio(stream: MediaStream, producerId: string): void {
-    console.log('[Maya] Setting up remote AI audio stream for producer:', producerId, stream);
+    console.log('[Voxera] Setting up remote AI audio stream for producer:', producerId, stream);
 
     // Create a unique audio element for each AI producer
     const audioElement = new Audio();
@@ -1535,7 +1549,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
     // Append to DOM - required for audio output in some browsers
     audioElement.style.display = 'none';
     document.body.appendChild(audioElement);
-    console.log('[Maya] Created new AI audio element for producer', producerId, 'and attached to DOM');
+    console.log('[Voxera] Created new AI audio element for producer', producerId, 'and attached to DOM');
 
     // Store reference to this audio element
     this.aiAudioElements.set(producerId, audioElement);
@@ -1547,7 +1561,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
 
     // Log track information
     const tracks = stream.getAudioTracks();
-    console.log('[Maya] Remote audio stream tracks:', tracks.length, tracks.map(t => ({
+    console.log('[Voxera] Remote audio stream tracks:', tracks.length, tracks.map(t => ({
       id: t.id,
       label: t.label,
       enabled: t.enabled,
@@ -1557,13 +1571,13 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
 
     // Add volume control for debugging
     audioElement.volume = 1.0;
-    console.log('[Maya] AI audio element volume:', audioElement.volume);
+    console.log('[Voxera] AI audio element volume:', audioElement.volume);
 
     // Monitor track activity
     const track = tracks[0];
     if (track) {
       // Log initial track state
-      console.log('[Maya] Initial track state:', {
+      console.log('[Voxera] Initial track state:', {
         enabled: track.enabled,
         muted: track.muted,
         readyState: track.readyState
@@ -1572,25 +1586,25 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       // MediaStreamTrack.muted is read-only and indicates no data is flowing
       // MediaStreamTrack.enabled is writable - ensure it's true
       if (!track.enabled) {
-        console.warn('[Maya] Track was disabled, enabling it');
+        console.warn('[Voxera] Track was disabled, enabling it');
         track.enabled = true;
       }
 
       track.addEventListener('ended', () => {
-        console.log('[Maya] Track ended for producer', producerId);
+        console.log('[Voxera] Track ended for producer', producerId);
       });
       track.addEventListener('mute', () => {
-        console.warn('[Maya] ⚠️ Track muted for producer', producerId);
+        console.warn('[Voxera] ⚠️ Track muted for producer', producerId);
       });
       track.addEventListener('unmute', () => {
-        console.log('[Maya] ✅ Track unmuted for producer', producerId);
+        console.log('[Voxera] ✅ Track unmuted for producer', producerId);
       });
 
       // Check for audio data every second
       let checkCount = 0;
       const checkInterval = setInterval(() => {
         checkCount++;
-        console.log(`[Maya] Audio check #${checkCount} for producer ${producerId}:`, {
+        console.log(`[Voxera] Audio check #${checkCount} for producer ${producerId}:`, {
           trackReadyState: track.readyState,
           trackEnabled: track.enabled,
           trackMuted: track.muted,
@@ -1609,7 +1623,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
 
     // Clean up audio element when stream ends
     stream.addEventListener('inactive', () => {
-      console.log('[Maya] Stream ended for producer', producerId, '- removing audio element');
+      console.log('[Voxera] Stream ended for producer', producerId, '- removing audio element');
       audioElement.pause();
       audioElement.srcObject = null;
       audioElement.remove();
@@ -1618,17 +1632,17 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
 
     // Start audio playback - with user interaction handling
     const startAudio = () => {
-      console.log('[Maya] Attempting to start audio playback for producer', producerId);
+      console.log('[Voxera] Attempting to start audio playback for producer', producerId);
       audioElement.play()
         .then(() => {
-          console.log('[Maya] ✅ AI audio playback started successfully for producer', producerId);
-          console.log('[Maya] Audio element state - paused:', audioElement.paused, 'muted:', audioElement.muted);
-          console.log('[Maya] Audio element currentTime:', audioElement.currentTime, 'duration:', audioElement.duration);
+          console.log('[Voxera] ✅ AI audio playback started successfully for producer', producerId);
+          console.log('[Voxera] Audio element state - paused:', audioElement.paused, 'muted:', audioElement.muted);
+          console.log('[Voxera] Audio element currentTime:', audioElement.currentTime, 'duration:', audioElement.duration);
         })
         .catch((error) => {
-          console.error('[Maya] ❌ AI audio playback failed:', error);
+          console.error('[Voxera] ❌ AI audio playback failed:', error);
           if (error.name === 'NotAllowedError') {
-            console.warn('[Maya] Browser autoplay policy blocked audio. User interaction required.');
+            console.warn('[Voxera] Browser autoplay policy blocked audio. User interaction required.');
             // Emit warning event to inform UI
             this.emit('warning', {
               type: 'autoplay-blocked',
@@ -1640,10 +1654,10 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
 
     // If user has already interacted, start immediately
     if (this.hasUserInteracted) {
-      console.log('[Maya] User has interacted, starting audio immediately');
+      console.log('[Voxera] User has interacted, starting audio immediately');
       startAudio();
     } else {
-      console.log('[Maya] Waiting for user interaction before starting audio');
+      console.log('[Voxera] Waiting for user interaction before starting audio');
       this.pendingAudioStarts.push(startAudio);
 
       // Emit warning that user interaction is needed
@@ -1655,7 +1669,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
   }
 
   private async handleNewProducer(producerId: string, source?: string, producerClientId?: string): Promise<void> {
-    console.log('[Maya] 🎵 New producer detected:', producerId, 'source:', source, 'clientId:', producerClientId);
+    console.log('[Voxera] 🎵 New producer detected:', producerId, 'source:', source, 'clientId:', producerClientId);
 
     // Store producer → client mapping
     if (producerClientId) {
@@ -1664,16 +1678,16 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
 
     // Clean up ALL old AI consumers and audio elements before creating new one
     if (source === 'ai') {
-      console.log('[Maya] 🧹 Cleaning up old AI consumers and audio elements before setting up new one');
+      console.log('[Voxera] 🧹 Cleaning up old AI consumers and audio elements before setting up new one');
       const oldConsumerCount = this.aiConsumers.size;
       const oldAudioCount = this.aiAudioElements.size;
 
       const closePromises: Promise<void>[] = [];
       this.aiConsumers.forEach((consumer, oldProducerId) => {
-        console.log(`[Maya] Closing old AI consumer for producer ${oldProducerId}`);
+        console.log(`[Voxera] Closing old AI consumer for producer ${oldProducerId}`);
         closePromises.push(
           new Promise<void>((resolve) => {
-            try { consumer.close(); } catch (e) { console.warn(`[Maya] Error closing consumer:`, e); }
+            try { consumer.close(); } catch (e) { console.warn(`[Voxera] Error closing consumer:`, e); }
             resolve();
           })
         );
@@ -1681,34 +1695,34 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       this.aiConsumers.clear();
 
       this.aiAudioElements.forEach((audioEl, oldProducerId) => {
-        console.log(`[Maya] Removing old AI audio element for producer ${oldProducerId}`);
+        console.log(`[Voxera] Removing old AI audio element for producer ${oldProducerId}`);
         try {
           audioEl.pause();
           audioEl.srcObject = null;
           if (audioEl.parentNode) { audioEl.parentNode.removeChild(audioEl); } else { audioEl.remove(); }
-        } catch (e) { console.warn(`[Maya] Error removing audio element:`, e); }
+        } catch (e) { console.warn(`[Voxera] Error removing audio element:`, e); }
       });
       this.aiAudioElements.clear();
 
       await Promise.all(closePromises);
-      console.log(`[Maya] ✅ Cleaned up ${oldConsumerCount} old consumers and ${oldAudioCount} old audio elements`);
+      console.log(`[Voxera] ✅ Cleaned up ${oldConsumerCount} old consumers and ${oldAudioCount} old audio elements`);
     }
 
     // Skip if we already have a consumer for this producer (dedup)
-    if (this.aiConsumers.has(producerId) || this.peerConsumers.has(producerId)) {
-      console.log('[Maya] Already consuming producer', producerId, '— skipping');
+    if (this.aiConsumers.has(producerId) || this.peerConsumers.has(producerId) || this.peerVideoConsumers.has(producerId)) {
+      console.log('[Voxera] Already consuming producer', producerId, '— skipping');
       return;
     }
 
     try {
-      console.log('[Maya] Requesting to consume producer:', producerId);
+      console.log('[Voxera] Requesting to consume producer:', producerId);
       const { id, kind, rtpParameters } = await this.emitWithTimeout('consume', {
         producerId,
         transportId: this.recvTransport!.id,
         rtpCapabilities: this.device!.rtpCapabilities,
       });
 
-      console.log('[Maya] Consumer created - id:', id, 'kind:', kind);
+      console.log('[Voxera] Consumer created - id:', id, 'kind:', kind);
       const consumer = await this.recvTransport!.consume({
         id,
         producerId,
@@ -1716,30 +1730,46 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
         rtpParameters,
       });
 
-      console.log('[Maya] Consumer created, track:', consumer.track);
+      console.log('[Voxera] Consumer created, track:', consumer.track);
       await consumer.resume();
-      console.log('[Maya] ✅ Consumer resumed');
+      console.log('[Voxera] ✅ Consumer resumed');
 
       if (kind === 'audio' && source === 'ai') {
-        console.log('[Maya] Setting up AI audio stream');
+        console.log('[Voxera] Setting up AI audio stream');
         this.aiConsumers.set(producerId, consumer);
         this.remoteStream = new MediaStream([consumer.track]);
         this.setupRemoteAudio(this.remoteStream, producerId);
-        console.log('[Maya] ✅ AI audio consumer setup complete');
+        console.log('[Voxera] ✅ AI audio consumer setup complete');
       } else if (kind === 'audio') {
-        console.log('[Maya] Setting up peer audio stream for producer:', producerId);
+        console.log('[Voxera] Setting up peer audio stream for producer:', producerId);
         this.peerConsumers.set(producerId, consumer);
         const peerStream = new MediaStream([consumer.track]);
         this.setupPeerAudio(peerStream, producerId);
-        console.log('[Maya] ✅ Peer audio consumer setup complete');
+        console.log('[Voxera] ✅ Peer audio consumer setup complete');
+      } else if (kind === 'video') {
+        console.log('[Voxera] Setting up peer video stream for producer:', producerId);
+        this.peerVideoConsumers.set(producerId, consumer);
+        const videoStream = new MediaStream([consumer.track]);
+        this.peerVideoStreams.set(producerId, videoStream);
+        const clientId = this.peerProducerToClient.get(producerId);
+        this.emit('peer-video:stream', { producerId, clientId, stream: videoStream });
+
+        // Clean up when track ends
+        consumer.track.addEventListener('ended', () => {
+          console.log('[Voxera] Peer video track ended for producer:', producerId);
+          this.peerVideoStreams.delete(producerId);
+          this.peerVideoConsumers.delete(producerId);
+          this.emit('peer-video:stream', { producerId, clientId, stream: null });
+        });
+        console.log('[Voxera] ✅ Peer video consumer setup complete');
       }
     } catch (error) {
-      console.error('[Maya] ❌ Error consuming producer:', error);
+      console.error('[Voxera] ❌ Error consuming producer:', error);
     }
   }
 
   private setupPeerAudio(stream: MediaStream, producerId: string): void {
-    console.log('[Maya] Setting up peer audio stream for producer:', producerId);
+    console.log('[Voxera] Setting up peer audio stream for producer:', producerId);
 
     const audioElement = new Audio();
     audioElement.style.display = 'none';
@@ -1750,7 +1780,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
     audioElement.volume = 1;
 
     stream.addEventListener('inactive', () => {
-      console.log('[Maya] Peer stream ended for producer', producerId);
+      console.log('[Voxera] Peer stream ended for producer', producerId);
       audioElement.pause();
       audioElement.srcObject = null;
       audioElement.remove();
@@ -1765,9 +1795,9 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
 
     const startAudio = () => {
       audioElement.play().then(() => {
-        console.log('[Maya] ✅ Peer audio playback started for producer', producerId);
+        console.log('[Voxera] ✅ Peer audio playback started for producer', producerId);
       }).catch((error) => {
-        console.error('[Maya] ❌ Peer audio playback failed:', error);
+        console.error('[Voxera] ❌ Peer audio playback failed:', error);
         if (error.name === 'NotAllowedError') {
           this.emit('warning', {
             type: 'autoplay-blocked',
@@ -1813,9 +1843,9 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       }, 100);
 
       this.peerAudioAnalysers.set(producerId, { analyser, interval });
-      console.log('[Maya] ✅ Peer audio monitoring started for producer', producerId);
+      console.log('[Voxera] ✅ Peer audio monitoring started for producer', producerId);
     } catch (err) {
-      console.warn('[Maya] Failed to start peer audio monitoring:', err);
+      console.warn('[Voxera] Failed to start peer audio monitoring:', err);
     }
   }
 
@@ -1904,9 +1934,9 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
         }
       }, 50);
 
-      console.log('[Maya] ✅ AI audio monitoring started');
+      console.log('[Voxera] ✅ AI audio monitoring started');
     } catch (error) {
-      console.warn('[Maya] Failed to start AI audio monitoring:', error);
+      console.warn('[Voxera] Failed to start AI audio monitoring:', error);
     }
   }
 
@@ -2009,7 +2039,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
   }
 
   private handleServerError(signal: Record<string, unknown>): void {
-    const error = new MayaVoiceError(
+    const error = new VoxeraError(
       (signal.message as string) || "Server error",
       (signal.code as string) || ErrorCodes.SERVER_ERROR
     );
@@ -2067,9 +2097,9 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
 
   private handleError(error: Error): void {
     const mayaError =
-      error instanceof MayaVoiceError
+      error instanceof VoxeraError
         ? error
-        : new MayaVoiceError(error.message, ErrorCodes.UNKNOWN_ERROR);
+        : new VoxeraError(error.message, ErrorCodes.UNKNOWN_ERROR);
 
     this.emit("error", mayaError);
     this.config.onError?.(mayaError);
@@ -2156,6 +2186,11 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
     this.peerConsumers.clear();
     this.peerAudioElements.forEach((el) => { try { el.pause(); el.srcObject = null; el.remove(); } catch (_) {} });
     this.peerAudioElements.clear();
+
+    // Clean up peer video consumers and streams
+    this.peerVideoConsumers.forEach((consumer) => { try { consumer.close(); } catch (_) {} });
+    this.peerVideoConsumers.clear();
+    this.peerVideoStreams.clear();
   }
 
   private generateId(): string {
@@ -2169,7 +2204,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
   private emitWithTimeout<T = any>(event: string, data: any, timeoutMs = 10000): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
-        reject(new MayaVoiceError(
+        reject(new VoxeraError(
           `Server did not respond to '${event}' within ${timeoutMs}ms`,
           ErrorCodes.CONNECTION_FAILED
         ));

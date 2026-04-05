@@ -4,15 +4,11 @@
  * The core SDK for connecting to the Voxera Voice platform.
  * Provides WebRTC-based voice AI interactions.
  *
- * 
- * 
- * 
- * 
  * @example
  * ```typescript
- * import { MayaVoiceClient } from '@voxera/sdk-core';
+ * import { VoxeraClient } from '@voxera/sdk-core';
  *
- * const client = new MayaVoiceClient({
+ * const client = new VoxeraClient({
  *   appKey: 'your-api-key',
  *   serverUrl: 'wss://api.voxera.ai',
  *   chatConfig: {
@@ -25,18 +21,18 @@
  * ```
  */
 
-export { MayaVoiceClient } from "./client";
+export { VoxeraClient } from "./client";
 
 export {
   // Types
-  type MayaVoiceConfig,
+  type VoxeraConfig,
   type ChatConfig,
   type VoiceConfig,
   type VideoConfig,
   type ScreenShareConfig,
   type ConnectionOptions,
   type ConversationMessage,
-  type MayaVoiceEvents,
+  type VoxeraEvents,
   type WebRTCStats,
   type Session,
   type InitSessionResponse,
@@ -64,9 +60,15 @@ export {
   type MeetingMinutesActionItem,
 
   // Error
-  MayaVoiceError,
+  VoxeraError,
   ErrorCodes,
 } from "./types";
+
+// Backward-compatible aliases (deprecated)
+export { VoxeraClient as MayaVoiceClient } from "./client";
+export { VoxeraError as MayaVoiceError } from "./types";
+export type { VoxeraConfig as MayaVoiceConfig } from "./types";
+export type { VoxeraEvents as MayaVoiceEvents } from "./types";
 
 // Version
 export const VERSION = "1.0.0";
