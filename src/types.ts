@@ -133,6 +133,7 @@ export interface MayaVoiceEvents {
   warning: (warning: { type: string; message: string }) => void;
   "audio:level": (level: number) => void;
   "ai-audio:level": (level: number) => void;
+  "peer-audio:level": (data: { producerId: string; clientId?: string; level: number }) => void;
   "video:local": (stream: MediaStream | null) => void;
   "video:remote": (stream: MediaStream | null) => void;
   "screen:local": (stream: MediaStream | null) => void;
