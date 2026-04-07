@@ -1,6 +1,62 @@
-# @voxera/sdk-core
+# Voxera SDK — Core
 
-Core TypeScript SDK for the [Voxera](https://voxera.ai) voice AI platform. Handles WebRTC connections via mediasoup, Socket.IO signaling, and voice AI interactions.
+Core TypeScript SDK for [Voxera Voice Platform](https://voxera-voice.com). Platform-agnostic client library that powers all framework-specific SDKs (React, React Native, iOS, Android, Flutter).
+
+## Platform Endpoints
+
+| Service | URL |
+|---------|-----|
+| **Media Server (WebSocket)** | `wss://media.voxera-voice.com` |
+| **Client API** | `https://client.voxera-voice.com/api/v1` |
+| **Auth API** | `https://auth.voxera-voice.com/api/v1` |
+| **Admin Dashboard** | `https://app.voxera-voice.com` |
+| **Demo** | `https://demo.voxera-voice.com` |
+
+> Pass the Media Server URL as `serverUrl` when creating a client.
+
+## Meeting Modes
+
+### AI Meeting (`ai-meeting`)
+
+A real-time voice conversation with an AI assistant. The AI listens via speech-to-text (STT), processes through a configurable LLM (OpenAI, Anthropic, Ollama), and responds with natural speech via text-to-speech (TTS). Supports multiple participants talking to the same AI in a shared room.
+
+**Capabilities:**
+
+- Real-time voice AI conversation (bidirectional audio over WebRTC/mediasoup)
+- Configurable AI persona via `systemPrompt`, `model`, `temperature`, `maxTokens`
+- Multiple TTS providers (OpenAI, ElevenLabs, Azure) with voice selection
+- Multiple STT providers (Google, OpenAI Whisper)
+- Live transcription of all speakers
+- Video and screen sharing with optional AI vision (`enableVideoAI`)
+- Ask AI — send the current transcript to AI and get a spoken response
+- Text message input alongside voice
+- AI-generated meeting summaries with action items and key topics
+- AI-generated meeting minutes (title, attendees, duration, sections)
+- Bookmarks — mark key moments and flag as action items
+
+### Normal Meeting (`normal-meeting`)
+
+A multi-participant audio/video meeting **without** AI voice. Participants talk to each other via WebRTC. AI features are available in text-only form.
+
+**Capabilities:**
+
+- Multi-participant real-time audio and video (WebRTC/mediasoup SFU)
+- Host controls — mute/unmute participant, mute all, remove participant, transfer host, lock room, end meeting
+- Waiting room — enable/disable, admit or deny individual participants, admit all
+- Live transcription (toggle on/off by host)
+- Ask AI (text) — send a prompt to AI, receive a streamed text response (no voice)
+- AI-generated meeting summaries and minutes
+- Bookmarks
+- Screen sharing
+
+### Common Features (Both Modes)
+
+- **WebRTC via mediasoup** — SFU-based low-latency audio/video transport with TURN fallback
+- **Room management** — create rooms with codes, join by code, display names, participant list
+- **Real-time events** — participant join/leave, mute status, host changes, room lock, transcription entries
+- **Webhook integration** — receive server-side events on session start/end, messages, errors
+- **Usage tracking** — minutes consumed, session history, breakdowns by period
+- **Configurable** — override AI provider, voice, language, video resolution per session
 
 ## Installation
 
@@ -11,208 +67,242 @@ npm install @voxera/sdk-core
 ## Quick Start
 
 ```typescript
-import { VoxeraClient } from '@voxera/sdk-core';
+import { MayaVoiceClient } from '@voxera/sdk-core';
 
-const client = new VoxeraClient({
-  appKey: 'your-api-key',
-  serverUrl: 'wss://api.voxera.ai',
+const client = new MayaVoiceClient({
+  appKey: 'your-app-key',                    // from https://app.voxera-voice.com
+  serverUrl: 'wss://media.voxera-voice.com',
   chatConfig: {
     systemPrompt: 'You are a helpful assistant.',
+    model: 'gpt-4o',
+    temperature: 0.7,
   },
+  voiceConfig: {
+    voiceId: 'nova',
+    voiceProvider: 'openai',
+  },
+  onConnectionStatusChange: (status) => console.log('Connection:', status),
+  onMessage: (msg) => console.log('Message:', msg),
+  onTranscript: (text, isFinal) => console.log('Transcript:', text),
 });
 
-// Connect and start a voice conversation
+// Connect and start AI conversation
 await client.connect();
 await client.startConversation();
 
-// Listen for AI responses
-client.on('message', (msg) => {
-  console.log(`${msg.role}: ${msg.content}`);
-});
-
-// Listen for status changes
-client.on('connection:status', (status) => console.log('Connection:', status));
-client.on('speaking:status', (status) => console.log('Speaking:', status));
+// Later
+await client.endConversation();
+client.disconnect();
 ```
 
-## Features
-
-- **Voice AI Conversations** — real-time voice chat with AI (OpenAI, Anthropic, Ollama)
-- **Multi-Room Meetings** — create/join rooms with multiple participants
-- **AI Meetings** — rooms with built-in AI assistant, live transcription, summaries
-- **Peer Video & Audio** — bidirectional video/audio streaming via mediasoup
-- **Screen Sharing** — share screen/tab with optional AI analysis
-- **Host Controls** — mute, remove, lock, transfer host, waiting room
-- **Live Transcription** — real-time speech-to-text for all participants
-- **Transcribe-Only Mode** — transcription without AI processing
-- **Meeting Intelligence** — AI-generated summaries, minutes, bookmarks
-- **TypeScript-first** — full type definitions for all APIs and events
-
-## API Reference
-
-### `VoxeraClient`
-
-#### Constructor
+### Multi-Participant Room
 
 ```typescript
-const client = new VoxeraClient(config: VoxeraConfig);
+// Host creates a room
+await client.connect();
+const room = await client.createRoom('Alice', 'Team Standup', 'normal-meeting');
+console.log('Room code:', room.roomCode); // share this code
+
+// Another user joins
+await otherClient.connect();
+await otherClient.joinRoom(room.roomCode, 'Bob');
+
+// Host controls
+await client.muteParticipant(sessionId, targetClientId);
+await client.lockRoom(sessionId, true);
+await client.toggleTranscription(sessionId, true);
+
+// AI features (text-only in normal-meeting mode)
+await client.askAiText(sessionId, 'Summarize what was discussed');
+await client.generateSummary(sessionId);
+await client.generateMinutes(sessionId);
+await client.addBookmark(sessionId, 'Key decision made', true);
 ```
 
-#### Configuration
+## Configuration
 
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `appKey` | `string` | ✅ | API key from Voxera dashboard |
-| `serverUrl` | `string` | ✅ | WebSocket server URL |
-| `sessionToken` | `string` | | Pre-authenticated session token |
-| `configurationId` | `string` | | Server-side AI configuration ID |
-| `chatConfig` | `ChatConfig` | | AI chat settings (prompt, model, provider) |
-| `voiceConfig` | `VoiceConfig` | | TTS voice settings (provider, voiceId, language) |
-| `videoConfig` | `VideoConfig` | | Camera settings (resolution, frameRate) |
-| `connectionOptions` | `ConnectionOptions` | | Reconnect settings, ICE servers |
+### `MayaVoiceConfig`
 
-#### Core Methods
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `appKey` | `string` | Yes | API key from the dashboard |
+| `serverUrl` | `string` | Yes | `wss://media.voxera-voice.com` |
+| `configurationId` | `string` | No | Server-side config preset ID |
+| `chatConfig` | `ChatConfig` | No | AI model settings |
+| `voiceConfig` | `VoiceConfig` | No | TTS voice settings |
+| `videoConfig` | `VideoConfig` | No | Camera/video settings |
+| `screenShareConfig` | `ScreenShareConfig` | No | Screen share settings |
+| `connectionOptions` | `ConnectionOptions` | No | Reconnect/timeout settings |
+
+### `ChatConfig`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `systemPrompt` | `string` | — | AI persona/instructions |
+| `welcomeMessage` | `string` | — | Greeting spoken on connect |
+| `aiProvider` | `string` | `chatgpt` | `chatgpt` · `ollama` · `custom` |
+| `model` | `string` | `gpt-4o` | LLM model name |
+| `temperature` | `number` | `0.7` | Response randomness (0–1) |
+| `maxTokens` | `number` | `2000` | Max response length |
+| `contextMessages` | `number` | — | Conversation history window |
+
+### `VoiceConfig`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `voiceId` | `string` | `nova` | Voice name/ID |
+| `voiceProvider` | `string` | `openai` | `openai` · `elevenlabs` · `custom` |
+| `language` | `string` | `en` | Language code |
+| `stability` | `number` | — | ElevenLabs stability (0–1) |
+| `similarityBoost` | `number` | — | ElevenLabs similarity (0–1) |
+
+### `VideoConfig`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `boolean` | `false` | Enable video on connect |
+| `width` | `number` | `640` | Video width |
+| `height` | `number` | `480` | Video height |
+| `frameRate` | `number` | `30` | Frames per second |
+| `facingMode` | `string` | `user` | `user` (front) · `environment` (back) |
+| `enableVideoAI` | `boolean` | `false` | Send video frames to AI pipeline |
+
+### `ConnectionOptions`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `autoReconnect` | `boolean` | `true` | Auto-reconnect on disconnect |
+| `reconnectAttempts` | `number` | `5` | Max reconnect attempts |
+| `reconnectDelay` | `number` | `1000` | Delay between attempts (ms) |
+| `timeout` | `number` | `10000` | Connection timeout (ms) |
+| `iceServers` | `RTCIceServer[]` | — | Custom ICE/TURN servers |
+
+## Events
+
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `connection:status` | `ConnectionStatus` | `idle` → `connecting` → `connected` → `disconnected` |
+| `conversation:status` | `ConversationStatus` | `idle` → `starting` → `active` → `ending` → `ended` |
+| `speaking:status` | `SpeakingStatus` | `none` · `user` · `ai` |
+| `message` | `ConversationMessage` | New chat message |
+| `transcript` | `(text, isFinal)` | Real-time speech transcription |
+| `participant:joined` | `RoomParticipant` | Someone joined the room |
+| `participant:left` | `RoomParticipant` | Someone left the room |
+| `participants:updated` | `RoomParticipant[]` | Full participant list update |
+| `you:muted` | — | You were muted by the host |
+| `you:removed` | — | You were removed from the room |
+| `host:changed` | — | Host was transferred |
+| `meeting:ended` | — | Meeting ended by host |
+| `room:locked` | `boolean` | Room lock status changed |
+| `transcription:toggled` | `boolean` | Transcription toggled by host |
+| `transcription:live` | `TranscriptionEntry` | Live transcription entry |
+| `ask-ai:started` | — | AI voice response started |
+| `ask-ai:processing` | — | AI is processing |
+| `ask-ai:cancelled` | — | AI voice response cancelled |
+| `ask-ai-text:started` | — | AI text response started |
+| `ask-ai-text:chunk` | `string` | Streamed AI text chunk |
+| `ask-ai-text:response` | `string` | Complete AI text response |
+| `summary:generated` | `MeetingSummary` | AI summary ready |
+| `minutes:generated` | `MeetingMinutes` | AI minutes ready |
+| `bookmark:added` | `MeetingBookmark` | Bookmark created |
+| `bookmark:removed` | `string` | Bookmark removed (ID) |
+| `waiting-room:updated` | `WaitingRoomEntry[]` | Waiting room list changed |
+| `waiting-room:toggled` | `boolean` | Waiting room enabled/disabled |
+
+## Methods
+
+### Connection
 
 | Method | Description |
 |--------|-------------|
-| `connect()` | Connect to server, initialize session, set up WebRTC |
-| `disconnect()` | Disconnect and clean up all resources |
-| `startConversation()` | Start a voice AI conversation |
-| `endConversation()` | End the current conversation |
+| `connect()` | Connect to the media server |
+| `disconnect()` | Disconnect and clean up |
+| `connectSocketOnly()` | Connect socket without WebRTC (for room setup) |
+| `setupRoomWebRTC()` | Initialize WebRTC after joining a room |
+
+### Conversation
+
+| Method | Description |
+|--------|-------------|
+| `startConversation()` | Start voice conversation |
+| `endConversation()` | End voice conversation |
 | `sendMessage(content)` | Send a text message |
-| `setMuted(muted)` | Mute/unmute local microphone |
 
-#### Video Methods
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `enableVideo()` | `void` | Enable camera |
-| `disableVideo()` | `void` | Disable camera |
-| `toggleVideo()` | `boolean` | Toggle camera, returns new state |
-| `startScreenShare()` | `void` | Start screen sharing |
-| `stopScreenShare()` | `void` | Stop screen sharing |
-| `toggleScreenShare()` | `boolean` | Toggle screen share, returns new state |
-
-#### Room Methods
+### Media
 
 | Method | Description |
 |--------|-------------|
-| `connectSocket()` | Connect socket only (for multi-room flows) |
-| `setupRoomWebRTC()` | Set up microphone + WebRTC after joining a room |
+| `setMuted(muted)` | Mute/unmute microphone |
+| `enableVideo()` | Start camera |
+| `disableVideo()` | Stop camera |
+| `toggleVideo()` | Toggle camera on/off |
+| `startScreenShare()` | Start screen sharing |
+| `stopScreenShare()` | Stop screen sharing |
+| `toggleScreenShare()` | Toggle screen sharing |
+| `getStats()` | Get WebRTC connection stats |
 
-#### Host Controls (meeting host only)
+### Host Controls (requires host role)
 
 | Method | Description |
 |--------|-------------|
-| `muteParticipant(sessionId, targetClientId)` | Mute a participant |
+| `muteParticipant(sessionId, targetId)` | Mute a participant |
 | `muteAll(sessionId)` | Mute all participants |
 | `unmuteAll(sessionId)` | Unmute all participants |
-| `removeParticipant(sessionId, targetClientId)` | Remove a participant |
+| `removeParticipant(sessionId, targetId)` | Remove a participant |
 | `lockRoom(sessionId, locked)` | Lock/unlock the room |
-| `endMeeting(sessionId)` | End the meeting for all |
-| `transferHost(sessionId, targetClientId)` | Transfer host role |
+| `endMeeting(sessionId)` | End the meeting for everyone |
+| `transferHost(sessionId, targetId)` | Transfer host role |
+| `toggleTranscription(sessionId, enabled)` | Enable/disable transcription |
+| `enableWaitingRoom(sessionId, enabled)` | Enable/disable waiting room |
+| `admitParticipant(sessionId, targetId)` | Admit from waiting room |
+| `denyParticipant(sessionId, targetId)` | Deny from waiting room |
+| `admitAll(sessionId)` | Admit all waiting participants |
 
-#### Transcription & AI
+### AI Features
 
 | Method | Description |
 |--------|-------------|
-| `toggleTranscription(sessionId, enabled)` | Toggle live transcription |
-| `toggleTranscribeOnly(sessionId, enabled)` | Transcription without AI processing |
-| `askAi(sessionId)` | Trigger AI to process transcript |
-| `cancelAskAi(sessionId)` | Cancel AI request |
-| `askAiText(sessionId, prompt?)` | Ask AI a text question |
-| `generateSummary(sessionId)` | Generate meeting summary |
-| `generateMinutes(sessionId)` | Generate meeting minutes |
+| `askAi(sessionId)` | Ask AI to respond with voice (ai-meeting) |
+| `cancelAskAi(sessionId)` | Cancel ongoing AI voice response |
+| `askAiText(sessionId, prompt?)` | Ask AI for a streamed text response |
+| `generateSummary(sessionId)` | Generate AI meeting summary |
+| `generateMinutes(sessionId)` | Generate AI meeting minutes |
 | `addBookmark(sessionId, label, isActionItem?)` | Add a bookmark |
+| `removeBookmark(sessionId, bookmarkId)` | Remove a bookmark |
+| `getBookmarks(sessionId)` | Get all bookmarks |
+| `getTranscript(sessionId)` | Get full transcript |
+| `getSummaries(sessionId)` | Get all summaries |
+| `getMinutes(sessionId)` | Get all minutes |
 
-### Events
+## REST API
 
-Listen to events via `client.on(event, handler)`:
+Base URL: `https://client.voxera-voice.com/api/v1`
 
-```typescript
-// Connection & conversation
-client.on('connection:status', (status: ConnectionStatus) => {});
-client.on('conversation:status', (status: ConversationStatus) => {});
-client.on('speaking:status', (status: SpeakingStatus) => {});
-client.on('message', (msg: ConversationMessage) => {});
-client.on('transcript', (text: string, isFinal: boolean) => {});
-client.on('error', (error: VoxeraError) => {});
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/auth/register` | Public | Register organization |
+| POST | `/auth/login` | Public | Login → JWT |
+| GET | `/sessions` | JWT | List sessions |
+| GET | `/sessions/:id` | JWT | Session details |
+| GET | `/sessions/:id/transcript` | JWT | Session transcript |
+| POST | `/sessions/init` | API Key | SDK: init session |
+| GET | `/configurations` | JWT | List configs |
+| POST | `/configurations` | JWT | Create config |
+| PUT | `/configurations/:id` | JWT | Update config |
+| DELETE | `/configurations/:id` | JWT | Delete config |
+| GET | `/voices` | Public | List available voices |
+| GET | `/usage/summary` | JWT | Usage summary |
+| GET | `/usage/history` | JWT | Usage history |
+| GET | `/organizations/me` | JWT | Organization info |
+| GET | `/billing/subscription` | JWT | Subscription info |
+| GET | `/webhooks` | JWT | List webhooks |
+| POST | `/webhooks` | JWT | Create webhook |
+| GET | `/health` | Public | Health check |
 
-// Audio levels
-client.on('audio:level', (level: number) => {});
-client.on('ai-audio:level', (level: number) => {});
-client.on('peer-audio:level', ({ producerId, clientId, level }) => {});
+## Build
 
-// Video
-client.on('video:local', (stream: MediaStream | null) => {});
-client.on('video:remote', (stream: MediaStream | null) => {});
-client.on('peer-video:stream', ({ producerId, clientId, stream }) => {});
-
-// Meeting events
-client.on('participant:joined', ({ clientId, displayName, participants }) => {});
-client.on('participant:left', ({ clientId, displayName, participants }) => {});
-client.on('host:changed', ({ newHostClientId, newHostName }) => {});
-client.on('meeting:ended', ({ by }) => {});
-client.on('transcription:live', (entry: TranscriptionEntry) => {});
-client.on('transcribe-only:toggled', ({ enabled, by }) => {});
-```
-
-### Error Handling
-
-```typescript
-import { VoxeraError, ErrorCodes } from '@voxera/sdk-core';
-
-client.on('error', (error: VoxeraError) => {
-  switch (error.code) {
-    case ErrorCodes.AUTHENTICATION_FAILED:
-      console.error('Invalid API key');
-      break;
-    case ErrorCodes.MEDIA_ACCESS_DENIED:
-      console.error('Microphone permission denied');
-      break;
-    case ErrorCodes.CONNECTION_FAILED:
-      console.error('Connection failed');
-      break;
-  }
-});
-```
-
-## Multi-Room Example
-
-```typescript
-const client = new VoxeraClient({ appKey: '...', serverUrl: '...' });
-await client.connectSocket();
-
-// Create an AI meeting room
-const socket = client.getSocket();
-const result = await socket.emitWithAck('create-room', {
-  displayName: 'Alice',
-  roomMode: 'ai-meeting',
-});
-
-// Set up WebRTC after room creation
-client.setRoomInfo('ai-meeting', true);
-await client.setupRoomWebRTC();
-```
-
-## TypeScript Types
-
-All types are fully exported:
-
-```typescript
-import type {
-  VoxeraConfig,
-  VoxeraEvents,
-  ConnectionStatus,
-  ConversationStatus,
-  ConversationMessage,
-  RoomMode,
-  RoomParticipant,
-  TranscriptionEntry,
-  MeetingBookmark,
-  MeetingSummary,
-  MeetingMinutes,
-} from '@voxera/sdk-core';
+```bash
+npm run build   # ESM + CJS via tsup
 ```
 
 ## License

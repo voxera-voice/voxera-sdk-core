@@ -1,5 +1,5 @@
 /**
- * Voxera SDK Core Types
+ * Maya Voice SDK Core Types
  */
 
 // Room / Meeting Modes
@@ -34,7 +34,7 @@ export interface ConversationMessage {
 }
 
 // Configuration
-export interface VoxeraConfig {
+export interface MayaVoiceConfig {
   // Required
   appKey: string;
   serverUrl: string;
@@ -61,7 +61,7 @@ export interface VoxeraConfig {
   onSpeakingStatusChange?: (status: SpeakingStatus) => void;
   onMessage?: (message: ConversationMessage) => void;
   onTranscript?: (text: string, isFinal: boolean) => void;
-  onError?: (error: VoxeraError) => void;
+  onError?: (error: MayaVoiceError) => void;
   onAudioLevel?: (level: number) => void;
   onAIAudioLevel?: (level: number) => void;
   onLocalVideoStream?: (stream: MediaStream | null) => void;
@@ -123,18 +123,16 @@ export interface ConnectionOptions {
 }
 
 // Events
-export interface VoxeraEvents {
+export interface MayaVoiceEvents {
   "connection:status": (status: ConnectionStatus) => void;
   "conversation:status": (status: ConversationStatus) => void;
   "speaking:status": (status: SpeakingStatus) => void;
   message: (message: ConversationMessage) => void;
   transcript: (text: string, isFinal: boolean) => void;
-  error: (error: VoxeraError) => void;
+  error: (error: MayaVoiceError) => void;
   warning: (warning: { type: string; message: string }) => void;
   "audio:level": (level: number) => void;
   "ai-audio:level": (level: number) => void;
-  "peer-audio:level": (data: { producerId: string; clientId?: string; level: number }) => void;
-  "peer-video:stream": (data: { producerId: string; clientId?: string; stream: MediaStream | null }) => void;
   "video:local": (stream: MediaStream | null) => void;
   "video:remote": (stream: MediaStream | null) => void;
   "screen:local": (stream: MediaStream | null) => void;
@@ -150,7 +148,6 @@ export interface VoxeraEvents {
   "room:locked": (data: { locked: boolean; by: string }) => void;
   "transcription:toggled": (data: { enabled: boolean; by: string }) => void;
   "transcription:live": (entry: TranscriptionEntry) => void;
-  "transcribe-only:toggled": (data: { enabled: boolean; by: string }) => void;
   "ask-ai:started": (data: { requesterId: string; requesterName: string }) => void;
   "ask-ai:processing": () => void;
   "ask-ai:cancelled": (data: { by: string }) => void;
@@ -174,7 +171,7 @@ export interface VoxeraEvents {
 }
 
 // Error
-export class VoxeraError extends Error {
+export class MayaVoiceError extends Error {
   public code: string;
   public details?: Record<string, unknown>;
 
@@ -184,7 +181,7 @@ export class VoxeraError extends Error {
     details?: Record<string, unknown>
   ) {
     super(message);
-    this.name = "VoxeraError";
+    this.name = "MayaVoiceError";
     this.code = code;
     this.details = details;
   }
@@ -319,7 +316,6 @@ export interface MeetingCallbacks {
   onRoomLockedChanged?: (data: { locked: boolean; by: string }) => void;
   onTranscriptionToggled?: (data: { enabled: boolean; by: string }) => void;
   onLiveTranscription?: (entry: TranscriptionEntry) => void;
-  onTranscribeOnlyToggled?: (data: { enabled: boolean; by: string }) => void;
   onAskAiStarted?: (data: { requesterId: string; requesterName: string }) => void;
   onAskAiProcessing?: () => void;
   onAskAiCancelled?: (data: { by: string }) => void;
