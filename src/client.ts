@@ -2,12 +2,12 @@ import EventEmitter from "eventemitter3";
 import { io, Socket as SocketIOSocket } from "socket.io-client";
 import * as mediasoupClient from 'mediasoup-client';
 import type {
-  MayaVoiceConfig,
+  VoxeraConfig,
   ConnectionStatus,
   ConversationStatus,
   SpeakingStatus,
   ConversationMessage,
-  MayaVoiceEvents,
+  VoxeraEvents,
   WebRTCStats,
   InitSessionResponse,
   RoomMode,
@@ -19,7 +19,7 @@ import type {
   MeetingSummary,
   MeetingMinutes,
 } from "./types";
-import { MayaVoiceError, ErrorCodes } from "./types";
+import { VoxeraError, ErrorCodes } from "./types";
 
 /**
  * Maya Voice Client - Core SDK
@@ -27,8 +27,8 @@ import { MayaVoiceError, ErrorCodes } from "./types";
  * This is the main client class for connecting to the Maya Voice platform.
  * It handles mediasoup WebRTC connections, signaling, and voice AI interactions.
  */
-export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
-  private config: MayaVoiceConfig;
+export class VoxeraClient extends EventEmitter<VoxeraEvents> {
+  private config: VoxeraConfig;
   private socket: SocketIOSocket | null = null;
 
   // Mediasoup properties (using any to avoid type import issues)
@@ -68,7 +68,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
   private hasUserInteracted: boolean = false;
   private pendingAudioStarts: Array<() => void> = [];
 
-  constructor(config: MayaVoiceConfig) {
+  constructor(config: VoxeraConfig) {
     super();
     this.validateConfig(config);
     this.config = config;
@@ -592,7 +592,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
    */
   async setupRoomWebRTC(): Promise<void> {
     if (!this.socket) {
-      throw new MayaVoiceError(
+      throw new VoxeraError(
         "Socket not connected — call connectSocket() first",
         ErrorCodes.CONNECTION_FAILED
       );
@@ -632,7 +632,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
    */
   async startConversation(): Promise<void> {
     if (this._connectionStatus !== "connected") {
-      throw new MayaVoiceError(
+      throw new VoxeraError(
         "Must be connected before starting conversation",
         ErrorCodes.CONNECTION_FAILED
       );
@@ -693,7 +693,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
    */
   sendMessage(content: string): void {
     if (this._connectionStatus !== "connected") {
-      throw new MayaVoiceError(
+      throw new VoxeraError(
         "Must be connected to send messages",
         ErrorCodes.CONNECTION_FAILED
       );
@@ -859,7 +859,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
             ? 'Camera is already in use by another application.'
             : `Failed to access camera: ${error.message}`;
 
-      throw new MayaVoiceError(
+      throw new VoxeraError(
         errorMessage,
         ErrorCodes.MEDIA_ACCESS_DENIED
       );
@@ -963,7 +963,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
         console.log('[Maya] Screen share permission denied or picker cancelled');
         return;
       }
-      throw new MayaVoiceError(
+      throw new VoxeraError(
         `Screen share failed: ${error.message}`,
         ErrorCodes.MEDIA_ACCESS_DENIED
       );
@@ -1045,7 +1045,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
   /**
    * Update configuration
    */
-  updateConfig(config: Partial<MayaVoiceConfig>): void {
+  updateConfig(config: Partial<VoxeraConfig>): void {
     this.config = { ...this.config, ...config };
 
     // Send config update to server if connected
@@ -1059,12 +1059,12 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
 
   // Private Methods
 
-  private validateConfig(config: MayaVoiceConfig): void {
+  private validateConfig(config: VoxeraConfig): void {
     if (!config.appKey) {
-      throw new MayaVoiceError("appKey is required", ErrorCodes.INVALID_CONFIG);
+      throw new VoxeraError("appKey is required", ErrorCodes.INVALID_CONFIG);
     }
     if (!config.serverUrl) {
-      throw new MayaVoiceError(
+      throw new VoxeraError(
         "serverUrl is required",
         ErrorCodes.INVALID_CONFIG
       );
@@ -1097,7 +1097,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
     });
 
     if (!response.ok) {
-      throw new MayaVoiceError(
+      throw new VoxeraError(
         "Failed to initialize session",
         ErrorCodes.AUTHENTICATION_FAILED
       );
@@ -1107,7 +1107,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
 
     // Handle new API response format
     if (result.success === false && result.error) {
-      throw new MayaVoiceError(
+      throw new VoxeraError(
         result.error.message,
         result.error.code as any
       );
@@ -1140,7 +1140,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       const timeout = setTimeout(() => {
         this.socket?.disconnect();
         reject(
-          new MayaVoiceError("Socket.IO connection timeout", ErrorCodes.TIMEOUT)
+          new VoxeraError("Socket.IO connection timeout", ErrorCodes.TIMEOUT)
         );
       }, this.config.connectionOptions?.timeout || 30000);
 
@@ -1174,7 +1174,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       this.socket.on('connect_error', (error) => {
         clearTimeout(timeout);
         reject(
-          new MayaVoiceError(
+          new VoxeraError(
             `Socket.IO connection failed: ${error.message}`,
             ErrorCodes.CONNECTION_FAILED
           )
@@ -1202,7 +1202,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       const timeout = setTimeout(() => {
         this.socket?.disconnect();
         reject(
-          new MayaVoiceError("Socket.IO connection timeout", ErrorCodes.TIMEOUT)
+          new VoxeraError("Socket.IO connection timeout", ErrorCodes.TIMEOUT)
         );
       }, this.config.connectionOptions?.timeout || 30000);
 
@@ -1222,7 +1222,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       this.socket.on('connect_error', (error) => {
         clearTimeout(timeout);
         reject(
-          new MayaVoiceError(
+          new VoxeraError(
             `Socket.IO connection failed: ${error.message}`,
             ErrorCodes.CONNECTION_FAILED
           )
@@ -1240,7 +1240,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       // 1. Get RTP capabilities from server
       const rtpCapabilities = await this.emitWithTimeout('getRtpCapabilities', {});
       if (!rtpCapabilities) {
-        throw new MayaVoiceError(
+        throw new VoxeraError(
           "Failed to get RTP capabilities",
           ErrorCodes.WEBRTC_ERROR
         );
@@ -1573,7 +1573,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       });
 
     } catch (error) {
-      throw new MayaVoiceError(
+      throw new VoxeraError(
         `WebRTC setup failed: ${error instanceof Error ? error.message : String(error)}`,
         ErrorCodes.WEBRTC_ERROR
       );
@@ -1594,7 +1594,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       // Start audio level monitoring
       this.startAudioLevelMonitoring();
     } catch (error) {
-      throw new MayaVoiceError(
+      throw new VoxeraError(
         "Microphone access denied",
         ErrorCodes.MEDIA_ACCESS_DENIED
       );
@@ -1911,7 +1911,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
   }
 
   private handleServerError(signal: Record<string, unknown>): void {
-    const error = new MayaVoiceError(
+    const error = new VoxeraError(
       (signal.message as string) || "Server error",
       (signal.code as string) || ErrorCodes.SERVER_ERROR
     );
@@ -1969,9 +1969,9 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
 
   private handleError(error: Error): void {
     const mayaError =
-      error instanceof MayaVoiceError
+      error instanceof VoxeraError
         ? error
-        : new MayaVoiceError(error.message, ErrorCodes.UNKNOWN_ERROR);
+        : new VoxeraError(error.message, ErrorCodes.UNKNOWN_ERROR);
 
     this.emit("error", mayaError);
     this.config.onError?.(mayaError);
@@ -2082,7 +2082,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
   private emitWithTimeout<T = any>(event: string, data: any, timeoutMs = 10000): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
-        reject(new MayaVoiceError(
+        reject(new VoxeraError(
           `Server did not respond to '${event}' within ${timeoutMs}ms`,
           ErrorCodes.CONNECTION_FAILED
         ));

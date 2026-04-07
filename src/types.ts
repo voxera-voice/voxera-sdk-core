@@ -34,7 +34,7 @@ export interface ConversationMessage {
 }
 
 // Configuration
-export interface MayaVoiceConfig {
+export interface VoxeraConfig {
   // Required
   appKey: string;
   serverUrl: string;
@@ -50,6 +50,12 @@ export interface MayaVoiceConfig {
   // Video configuration (client-side media constraints)
   videoConfig?: VideoConfig;
 
+  // AI chat configuration (optional — overridden by server-side agent config)
+  chatConfig?: ChatConfig;
+
+  // Voice / TTS configuration (optional — overridden by server-side agent config)
+  voiceConfig?: VoiceConfig;
+
   // Connection options
   connectionOptions?: ConnectionOptions;
 
@@ -59,7 +65,7 @@ export interface MayaVoiceConfig {
   onSpeakingStatusChange?: (status: SpeakingStatus) => void;
   onMessage?: (message: ConversationMessage) => void;
   onTranscript?: (text: string, isFinal: boolean) => void;
-  onError?: (error: MayaVoiceError) => void;
+  onError?: (error: VoxeraError) => void;
   onAudioLevel?: (level: number) => void;
   onAIAudioLevel?: (level: number) => void;
   onLocalVideoStream?: (stream: MediaStream | null) => void;
@@ -121,13 +127,13 @@ export interface ConnectionOptions {
 }
 
 // Events
-export interface MayaVoiceEvents {
+export interface VoxeraEvents {
   "connection:status": (status: ConnectionStatus) => void;
   "conversation:status": (status: ConversationStatus) => void;
   "speaking:status": (status: SpeakingStatus) => void;
   message: (message: ConversationMessage) => void;
   transcript: (text: string, isFinal: boolean) => void;
-  error: (error: MayaVoiceError) => void;
+  error: (error: VoxeraError) => void;
   warning: (warning: { type: string; message: string }) => void;
   "audio:level": (level: number) => void;
   "ai-audio:level": (level: number) => void;
@@ -169,7 +175,7 @@ export interface MayaVoiceEvents {
 }
 
 // Error
-export class MayaVoiceError extends Error {
+export class VoxeraError extends Error {
   public code: string;
   public details?: Record<string, unknown>;
 
@@ -179,7 +185,7 @@ export class MayaVoiceError extends Error {
     details?: Record<string, unknown>
   ) {
     super(message);
-    this.name = "MayaVoiceError";
+    this.name = "VoxeraError";
     this.code = code;
     this.details = details;
   }
