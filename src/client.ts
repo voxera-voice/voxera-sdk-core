@@ -542,7 +542,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       const session = await this.initSession();
       this._sessionId = session.data?.sessionId || session.sessionId || null;
 
-      // Request microphone access BEFORE setting up WebRTC (matching omnium pattern)
+      // Request microphone access BEFORE setting up WebRTC (matching voxera pattern)
       await this.requestMicrophoneAccess();
 
       // Connect WebSocket
@@ -651,10 +651,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       // Send start conversation signal
       this.sendSignal({
         type: "conversation:start",
-        config: {
-          chat: this.config.chatConfig,
-          voice: this.config.voiceConfig,
-        },
+        config: {},
       });
 
       this.setConversationStatus("active");
@@ -1054,10 +1051,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
     if (this._connectionStatus === "connected") {
       this.sendSignal({
         type: "config:update",
-        config: {
-          chat: this.config.chatConfig,
-          voice: this.config.voiceConfig,
-        },
+        config: {},
       });
     }
   }
@@ -1095,9 +1089,9 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
         "X-API-Key": this.config.appKey,
       },
       body: JSON.stringify({
-        configurationId: this.config.configurationId,
+        agentId: this.config.agentId || this.config.configurationId,
         userId: this.config.userId,
-        metadata: {},
+        metadata: this.config.metadata || {},
       }),
     });
 
@@ -1158,7 +1152,8 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
           await this.socket?.emitWithAck('init-session-connection', {
             sessionId,
             appKey: this.config.appKey,
-            userId: 'demo-user',
+            agentId: this.config.agentId || this.config.configurationId,
+            userId: this.config.userId || 'demo-user',
             enableVideoAI: this.config.videoConfig?.enableVideoAI || false,
           });
           console.log('[Maya] Session initialized successfully');

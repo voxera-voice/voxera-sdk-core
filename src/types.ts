@@ -41,16 +41,13 @@ export interface MayaVoiceConfig {
 
   // Optional
   sessionToken?: string;
+  /** @deprecated Use agentId instead */
   configurationId?: string;
+  agentId?: string;
   userId?: string;
+  metadata?: Record<string, string>;
 
-  // Chat configuration
-  chatConfig?: ChatConfig;
-
-  // Voice configuration
-  voiceConfig?: VoiceConfig;
-
-  // Video configuration
+  // Video configuration (client-side media constraints)
   videoConfig?: VideoConfig;
 
   // Connection options
