@@ -1096,6 +1096,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       },
       body: JSON.stringify({
         configurationId: this.config.configurationId,
+        userId: this.config.userId,
         metadata: {},
       }),
     });

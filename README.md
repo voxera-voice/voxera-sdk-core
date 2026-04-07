@@ -7,12 +7,9 @@ Core TypeScript SDK for [Voxera Voice Platform](https://voxera-voice.com). Platf
 | Service | URL |
 |---------|-----|
 | **Media Server (WebSocket)** | `wss://media.voxera-voice.com` |
-| **Client API** | `https://client.voxera-voice.com/api/v1` |
-| **Auth API** | `https://auth.voxera-voice.com/api/v1` |
-| **Admin Dashboard** | `https://app.voxera-voice.com` |
 | **Demo** | `https://demo.voxera-voice.com` |
 
-> Pass the Media Server URL as `serverUrl` when creating a client.
+> Pass the Media Server URL as `serverUrl` when creating a client. Get your API key at [app.voxera-voice.com](https://app.voxera-voice.com).
 
 ## Meeting Modes
 
@@ -273,37 +270,6 @@ await client.addBookmark(sessionId, 'Key decision made', true);
 | `getTranscript(sessionId)` | Get full transcript |
 | `getSummaries(sessionId)` | Get all summaries |
 | `getMinutes(sessionId)` | Get all minutes |
-
-## REST API
-
-Base URL: `https://client.voxera-voice.com/api/v1`
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| POST | `/auth/register` | Public | Register organization |
-| POST | `/auth/login` | Public | Login → JWT |
-| GET | `/sessions` | JWT | List sessions |
-| GET | `/sessions/:id` | JWT | Session details |
-| GET | `/sessions/:id/transcript` | JWT | Session transcript |
-| POST | `/sessions/init` | API Key | SDK: init session |
-| GET | `/configurations` | JWT | List configs |
-| POST | `/configurations` | JWT | Create config |
-| PUT | `/configurations/:id` | JWT | Update config |
-| DELETE | `/configurations/:id` | JWT | Delete config |
-| GET | `/voices` | Public | List available voices |
-| GET | `/usage/summary` | JWT | Usage summary |
-| GET | `/usage/history` | JWT | Usage history |
-| GET | `/organizations/me` | JWT | Organization info |
-| GET | `/billing/subscription` | JWT | Subscription info |
-| GET | `/webhooks` | JWT | List webhooks |
-| POST | `/webhooks` | JWT | Create webhook |
-| GET | `/health` | Public | Health check |
-
-## Build
-
-```bash
-npm run build   # ESM + CJS via tsup
-```
 
 ## License
 

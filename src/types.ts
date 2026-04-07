@@ -42,6 +42,7 @@ export interface MayaVoiceConfig {
   // Optional
   sessionToken?: string;
   configurationId?: string;
+  userId?: string;
 
   // Chat configuration
   chatConfig?: ChatConfig;
