@@ -1530,6 +1530,7 @@ export class VoxeraClient extends EventEmitter<VoxeraEvents> {
             console.log('[Maya] Setting up participant video stream from:', producerClientId);
             this.participantConsumers.set(producerId, consumer);
             this.remoteVideoStream = new MediaStream([consumer.track]);
+            this.config.onRemoteVideoStream?.(this.remoteVideoStream);
             this.emit('video:remote', this.remoteVideoStream);
             console.log('[Maya] ✅ Participant video consumer setup complete');
           } else {
