@@ -20,7 +20,7 @@ A real-time voice conversation with an AI assistant. The AI listens via speech-t
 **Capabilities:**
 
 - Real-time voice AI conversation (bidirectional audio over WebRTC/mediasoup)
-- Configurable AI persona via `systemPrompt`, `model`, `temperature`, `maxTokens`
+- Configurable AI persona via dashboard Agent settings (system prompt, model, temperature, max tokens)
 - Multiple TTS providers (OpenAI, ElevenLabs, Azure) with voice selection
 - Multiple STT providers (Google, OpenAI Whisper)
 - Live transcription of all speakers
@@ -69,15 +69,7 @@ import { MayaVoiceClient } from '@voxera/sdk-core';
 const client = new MayaVoiceClient({
   appKey: 'your-app-key',                    // from https://app.voxera-voice.com
   serverUrl: 'wss://media.voxera-voice.com',
-  chatConfig: {
-    systemPrompt: 'You are a helpful assistant.',
-    model: 'gpt-4o',
-    temperature: 0.7,
-  },
-  voiceConfig: {
-    voiceId: 'nova',
-    voiceProvider: 'openai',
-  },
+  agentId: 'your-agent-id',                  // created in the dashboard
   onConnectionStatusChange: (status) => console.log('Connection:', status),
   onMessage: (msg) => console.log('Message:', msg),
   onTranscript: (text, isFinal) => console.log('Transcript:', text),
@@ -124,34 +116,12 @@ await client.addBookmark(sessionId, 'Key decision made', true);
 |-------|------|----------|-------------|
 | `appKey` | `string` | Yes | API key from the dashboard |
 | `serverUrl` | `string` | Yes | `wss://media.voxera-voice.com` |
-| `configurationId` | `string` | No | Server-side config preset ID |
-| `chatConfig` | `ChatConfig` | No | AI model settings |
-| `voiceConfig` | `VoiceConfig` | No | TTS voice settings |
+| `agentId` | `string` | No | Agent ID (created in the dashboard). Defines AI persona, model, voice, tools, and endpoints |
+| `userId` | `string` | No | Identify the end-user for analytics |
+| `metadata` | `Record<string, string>` | No | Custom key-value pairs passed to agent endpoints |
 | `videoConfig` | `VideoConfig` | No | Camera/video settings |
 | `screenShareConfig` | `ScreenShareConfig` | No | Screen share settings |
 | `connectionOptions` | `ConnectionOptions` | No | Reconnect/timeout settings |
-
-### `ChatConfig`
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `systemPrompt` | `string` | — | AI persona/instructions |
-| `welcomeMessage` | `string` | — | Greeting spoken on connect |
-| `aiProvider` | `string` | `chatgpt` | `chatgpt` · `ollama` · `custom` |
-| `model` | `string` | `gpt-4o` | LLM model name |
-| `temperature` | `number` | `0.7` | Response randomness (0–1) |
-| `maxTokens` | `number` | `2000` | Max response length |
-| `contextMessages` | `number` | — | Conversation history window |
-
-### `VoiceConfig`
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `voiceId` | `string` | `nova` | Voice name/ID |
-| `voiceProvider` | `string` | `openai` | `openai` · `elevenlabs` · `custom` |
-| `language` | `string` | `en` | Language code |
-| `stability` | `number` | — | ElevenLabs stability (0–1) |
-| `similarityBoost` | `number` | — | ElevenLabs similarity (0–1) |
 
 ### `VideoConfig`
 

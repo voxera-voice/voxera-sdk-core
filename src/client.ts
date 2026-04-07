@@ -45,6 +45,7 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
   private screenShareProducer: any = null;
   private aiAudioElements: Map<string, HTMLAudioElement> = new Map();
   private aiConsumers: Map<string, any> = new Map(); // Track AI audio consumers
+  private participantConsumers: Map<string, any> = new Map(); // Track participant audio/video consumers
 
   private _connectionStatus: ConnectionStatus = "idle";
   private _conversationStatus: ConversationStatus = "idle";
@@ -1437,11 +1438,11 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
         console.log('[Maya] 📡 Recv transport connection state changed:', state);
       });
 
-      // 7. Listen for new AI producers
-      this.socket?.on('new-producer', async ({ producerId, source }: { producerId: string; source?: string }) => {
-        console.log('[Maya] 🎵 New producer detected:', producerId, 'source:', source);
+      // 7. Listen for new producers (AI or participant audio/video)
+      this.socket?.on('new-producer', async ({ producerId, source, kind, producerClientId }: { producerId: string; source?: string; kind?: string; producerClientId?: string }) => {
+        console.log('[Maya] 🎵 New producer detected:', producerId, 'source:', source, 'kind:', kind, 'from:', producerClientId);
 
-        // 🔥 FIX: Clean up ALL old AI consumers and audio elements before creating new one
+        // Clean up old AI consumers and audio elements before creating new one
         if (source === 'ai') {
           console.log('[Maya] 🧹 Cleaning up old AI consumers and audio elements before setting up new one');
           const oldConsumerCount = this.aiConsumers.size;
@@ -1517,8 +1518,22 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
             this.remoteStream = new MediaStream([consumer.track]);
             this.setupRemoteAudio(this.remoteStream, producerId);
             console.log('[Maya] ✅ AI audio consumer setup complete');
+          } else if (kind === 'audio' && source !== 'ai') {
+            // Participant audio - set up remote audio playback
+            console.log('[Maya] Setting up participant audio stream from:', producerClientId);
+            this.participantConsumers.set(producerId, consumer);
+            const audioStream = new MediaStream([consumer.track]);
+            this.setupRemoteAudio(audioStream, producerId);
+            console.log('[Maya] ✅ Participant audio consumer setup complete');
+          } else if (kind === 'video') {
+            // Participant video
+            console.log('[Maya] Setting up participant video stream from:', producerClientId);
+            this.participantConsumers.set(producerId, consumer);
+            this.remoteVideoStream = new MediaStream([consumer.track]);
+            this.emit('video:remote', this.remoteVideoStream);
+            console.log('[Maya] ✅ Participant video consumer setup complete');
           } else {
-            console.log('[Maya] Non-AI audio producer, skipping remote audio setup');
+            console.log('[Maya] Unhandled producer kind:', kind, 'source:', source);
           }
         } catch (error) {
           console.error('[Maya] ❌ Error consuming producer:', error);
@@ -2020,6 +2035,28 @@ export class MayaVoiceClient extends EventEmitter<MayaVoiceEvents> {
       this.recvTransport.close();
       this.recvTransport = null;
     }
+
+    // Close participant consumers
+    this.participantConsumers.forEach((consumer) => {
+      try { consumer.close(); } catch (_) {}
+    });
+    this.participantConsumers.clear();
+
+    // Close AI consumers
+    this.aiConsumers.forEach((consumer) => {
+      try { consumer.close(); } catch (_) {}
+    });
+    this.aiConsumers.clear();
+
+    // Remove AI audio elements
+    this.aiAudioElements.forEach((audioEl) => {
+      try {
+        audioEl.pause();
+        audioEl.srcObject = null;
+        audioEl.remove();
+      } catch (_) {}
+    });
+    this.aiAudioElements.clear();
 
     // Clear device
     this.device = null;

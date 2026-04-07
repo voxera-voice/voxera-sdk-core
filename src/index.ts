@@ -26,6 +26,7 @@
  */
 
 export { MayaVoiceClient } from "./client";
+export { MayaVoiceClient as VoxeraClient } from "./client";
 
 export {
   // Types

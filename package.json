@@ -1,6 +1,6 @@
 {
   "name": "@voxera/sdk-core",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "Core SDK for Voxera Voice Platform",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
