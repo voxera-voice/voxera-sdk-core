@@ -22,6 +22,7 @@
  */
 
 export { VoxeraClient } from "./client";
+export { SocketCrypto, isEncryptedPayload } from "./crypto";
 
 export {
   // Types

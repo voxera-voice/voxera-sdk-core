@@ -242,6 +242,7 @@ export interface InitSessionResponse {
       usedMinutes: number;
       maxMinutes: number;
     };
+    encryptionKey?: string;
   };
   error?: {
     code: string;

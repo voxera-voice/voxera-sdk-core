@@ -20,6 +20,7 @@ import type {
   MeetingMinutes,
 } from "./types";
 import { VoxeraError, ErrorCodes } from "./types";
+import { SocketCrypto, isEncryptedPayload } from "./crypto";
 
 /**
  * Maya Voice Client - Core SDK
@@ -58,6 +59,9 @@ export class VoxeraClient extends EventEmitter<VoxeraEvents> {
   private _roomMode: RoomMode | null = null;
   private _isHost: boolean = false;
   private _meetingCallbacks: MeetingCallbacks = {};
+
+  // Socket payload encryption
+  private socketCrypto: SocketCrypto | null = null;
 
   private reconnectAttempts = 0;
   private audioContext: AudioContext | null = null;
@@ -161,48 +165,56 @@ export class VoxeraClient extends EventEmitter<VoxeraEvents> {
   setupMeetingListeners(): void {
     if (!this.socket) return;
 
+    // Helper to auto-decrypt meeting event data
+    const onDecrypted = (event: string, handler: (data: any) => void) => {
+      this.socket?.on(event, async (raw: any) => {
+        const data = await this.decryptPayload(raw);
+        handler(data);
+      });
+    };
+
     // Participant events
-    this.socket.on('participant-joined', (data: any) => {
+    onDecrypted('participant-joined', (data: any) => {
       this.emit('participant:joined', data);
       this._meetingCallbacks.onParticipantJoined?.(data);
     });
 
-    this.socket.on('participant-left', (data: any) => {
+    onDecrypted('participant-left', (data: any) => {
       this.emit('participant:left', data);
       this._meetingCallbacks.onParticipantLeft?.(data);
     });
 
-    this.socket.on('participant-removed', (data: any) => {
+    onDecrypted('participant-removed', (data: any) => {
       this.emit('participant:removed', data);
       this._meetingCallbacks.onParticipantRemoved?.(data);
     });
 
-    this.socket.on('participants-updated', (data: any) => {
+    onDecrypted('participants-updated', (data: any) => {
       this.emit('participants:updated', data);
       this._meetingCallbacks.onParticipantsUpdated?.(data);
     });
 
     // Host control events
-    this.socket.on('you-were-muted', (data: any) => {
+    onDecrypted('you-were-muted', (data: any) => {
       this.emit('you:muted', data);
       this._meetingCallbacks.onYouWereMuted?.(data);
     });
 
-    this.socket.on('you-were-removed', (data: any) => {
+    onDecrypted('you-were-removed', (data: any) => {
       this.emit('you:removed', data);
       this._meetingCallbacks.onYouWereRemoved?.(data);
     });
 
-    this.socket.on('all-muted', (data: any) => {
+    onDecrypted('all-muted', (data: any) => {
       this.emit('you:muted', data); // Also emit personal mute
       this._meetingCallbacks.onAllMuted?.(data);
     });
 
-    this.socket.on('all-unmuted', (data: any) => {
+    onDecrypted('all-unmuted', (data: any) => {
       this._meetingCallbacks.onAllUnmuted?.(data);
     });
 
-    this.socket.on('host-changed', (data: any) => {
+    onDecrypted('host-changed', (data: any) => {
       // Update local isHost state
       if (this.socket) {
         this._isHost = data.newHostClientId === this.socket.id;
@@ -211,118 +223,118 @@ export class VoxeraClient extends EventEmitter<VoxeraEvents> {
       this._meetingCallbacks.onHostChanged?.(data);
     });
 
-    this.socket.on('meeting-ended', (data: any) => {
+    onDecrypted('meeting-ended', (data: any) => {
       this.emit('meeting:ended', data);
       this._meetingCallbacks.onMeetingEnded?.(data);
     });
 
-    this.socket.on('room-locked-changed', (data: any) => {
+    onDecrypted('room-locked-changed', (data: any) => {
       this.emit('room:locked', data);
       this._meetingCallbacks.onRoomLockedChanged?.(data);
     });
 
     // Transcription events
-    this.socket.on('transcription-toggled', (data: any) => {
+    onDecrypted('transcription-toggled', (data: any) => {
       this.emit('transcription:toggled', data);
       this._meetingCallbacks.onTranscriptionToggled?.(data);
     });
 
-    this.socket.on('live-transcription', (data: any) => {
+    onDecrypted('live-transcription', (data: any) => {
       this.emit('transcription:live', data);
       this._meetingCallbacks.onLiveTranscription?.(data);
     });
 
     // Ask AI events
-    this.socket.on('ask-ai-started', (data: any) => {
+    onDecrypted('ask-ai-started', (data: any) => {
       this.emit('ask-ai:started', data);
       this._meetingCallbacks.onAskAiStarted?.(data);
     });
 
-    this.socket.on('ask-ai-processing', () => {
+    onDecrypted('ask-ai-processing', () => {
       this.emit('ask-ai:processing');
       this._meetingCallbacks.onAskAiProcessing?.();
     });
 
-    this.socket.on('ask-ai-cancelled', (data: any) => {
+    onDecrypted('ask-ai-cancelled', (data: any) => {
       this.emit('ask-ai:cancelled', data);
       this._meetingCallbacks.onAskAiCancelled?.(data);
     });
 
     // Phase 3: Text-only AI events (normal-meeting mode)
-    this.socket.on('ask-ai-text-started', (data: any) => {
+    onDecrypted('ask-ai-text-started', (data: any) => {
       this.emit('ask-ai-text:started', data);
       this._meetingCallbacks.onAskAiTextStarted?.(data);
     });
 
-    this.socket.on('ask-ai-text-chunk', (data: any) => {
+    onDecrypted('ask-ai-text-chunk', (data: any) => {
       this.emit('ask-ai-text:chunk', data);
       this._meetingCallbacks.onAskAiTextChunk?.(data);
     });
 
-    this.socket.on('ask-ai-text-response', (data: any) => {
+    onDecrypted('ask-ai-text-response', (data: any) => {
       this.emit('ask-ai-text:response', data);
       this._meetingCallbacks.onAskAiTextResponse?.(data);
     });
 
-    this.socket.on('ask-ai-text-error', (data: any) => {
+    onDecrypted('ask-ai-text-error', (data: any) => {
       this.emit('ask-ai-text:error', data);
       this._meetingCallbacks.onAskAiTextError?.(data);
     });
 
     // Waiting room events
-    this.socket.on('waiting-room', (data: any) => {
+    onDecrypted('waiting-room', (data: any) => {
       this.emit('waiting-room:status', data);
       this._meetingCallbacks.onWaitingRoom?.(data);
     });
 
-    this.socket.on('admitted', (data: any) => {
+    onDecrypted('admitted', (data: any) => {
       this._roomMode = data.roomMode || null;
       this.emit('waiting-room:admitted', data);
       this._meetingCallbacks.onAdmitted?.(data);
     });
 
-    this.socket.on('denied', (data: any) => {
+    onDecrypted('denied', (data: any) => {
       this.emit('waiting-room:denied', data);
       this._meetingCallbacks.onDenied?.(data);
     });
 
-    this.socket.on('waiting-room-updated', (data: any) => {
+    onDecrypted('waiting-room-updated', (data: any) => {
       this.emit('waiting-room:updated', data);
       this._meetingCallbacks.onWaitingRoomUpdated?.(data);
     });
 
-    this.socket.on('waiting-room-toggled', (data: any) => {
+    onDecrypted('waiting-room-toggled', (data: any) => {
       this.emit('waiting-room:toggled', data);
       this._meetingCallbacks.onWaitingRoomToggled?.(data);
     });
 
     // Phase 2: AI Differentiator events
-    this.socket.on('summary-generating', (data: any) => {
+    onDecrypted('summary-generating', (data: any) => {
       this.emit('summary:generating', data);
       this._meetingCallbacks.onSummaryGenerating?.(data);
     });
 
-    this.socket.on('summary-generated', (data: any) => {
+    onDecrypted('summary-generated', (data: any) => {
       this.emit('summary:generated', data);
       this._meetingCallbacks.onSummaryGenerated?.(data);
     });
 
-    this.socket.on('minutes-generating', (data: any) => {
+    onDecrypted('minutes-generating', (data: any) => {
       this.emit('minutes:generating', data);
       this._meetingCallbacks.onMinutesGenerating?.(data);
     });
 
-    this.socket.on('minutes-generated', (data: any) => {
+    onDecrypted('minutes-generated', (data: any) => {
       this.emit('minutes:generated', data);
       this._meetingCallbacks.onMinutesGenerated?.(data);
     });
 
-    this.socket.on('bookmark-added', (data: any) => {
+    onDecrypted('bookmark-added', (data: any) => {
       this.emit('bookmark:added', data);
       this._meetingCallbacks.onBookmarkAdded?.(data);
     });
 
-    this.socket.on('bookmark-removed', (data: any) => {
+    onDecrypted('bookmark-removed', (data: any) => {
       this.emit('bookmark:removed', data);
       this._meetingCallbacks.onBookmarkRemoved?.(data);
     });
@@ -334,70 +346,70 @@ export class VoxeraClient extends EventEmitter<VoxeraEvents> {
    * Mute a specific participant (host only)
    */
   async muteParticipant(sessionId: string, targetClientId: string): Promise<any> {
-    return this.socket?.emitWithAck('mute-participant', { sessionId, targetClientId });
+    return this.emitEncrypted('mute-participant', { sessionId, targetClientId });
   }
 
   /**
    * Mute all participants except host (host only)
    */
   async muteAll(sessionId: string): Promise<any> {
-    return this.socket?.emitWithAck('mute-all', { sessionId });
+    return this.emitEncrypted('mute-all', { sessionId });
   }
 
   /**
    * Unmute all participants (host only)
    */
   async unmuteAll(sessionId: string): Promise<any> {
-    return this.socket?.emitWithAck('unmute-all', { sessionId });
+    return this.emitEncrypted('unmute-all', { sessionId });
   }
 
   /**
    * Remove a participant from the room (host only)
    */
   async removeParticipant(sessionId: string, targetClientId: string): Promise<any> {
-    return this.socket?.emitWithAck('remove-participant', { sessionId, targetClientId });
+    return this.emitEncrypted('remove-participant', { sessionId, targetClientId });
   }
 
   /**
    * Lock/unlock the room (host only)
    */
   async lockRoom(sessionId: string, locked: boolean): Promise<any> {
-    return this.socket?.emitWithAck('lock-room', { sessionId, locked });
+    return this.emitEncrypted('lock-room', { sessionId, locked });
   }
 
   /**
    * End the meeting for all participants (host only)
    */
   async endMeeting(sessionId: string): Promise<any> {
-    return this.socket?.emitWithAck('end-meeting', { sessionId });
+    return this.emitEncrypted('end-meeting', { sessionId });
   }
 
   /**
    * Transfer host role to another participant (host only)
    */
   async transferHost(sessionId: string, targetClientId: string): Promise<any> {
-    return this.socket?.emitWithAck('transfer-host', { sessionId, targetClientId });
+    return this.emitEncrypted('transfer-host', { sessionId, targetClientId });
   }
 
   /**
    * Toggle transcription on/off (host only)
    */
   async toggleTranscription(sessionId: string, enabled: boolean): Promise<any> {
-    return this.socket?.emitWithAck('toggle-transcription', { sessionId, enabled });
+    return this.emitEncrypted('toggle-transcription', { sessionId, enabled });
   }
 
   /**
    * Trigger Ask AI mode — collects transcript and sends to AI
    */
   async askAi(sessionId: string): Promise<any> {
-    return this.socket?.emitWithAck('ask-ai', { sessionId });
+    return this.emitEncrypted('ask-ai', { sessionId });
   }
 
   /**
    * Cancel an active Ask AI request
    */
   async cancelAskAi(sessionId: string): Promise<any> {
-    return this.socket?.emitWithAck('cancel-ask-ai', { sessionId });
+    return this.emitEncrypted('cancel-ask-ai', { sessionId });
   }
 
   /**
@@ -405,35 +417,35 @@ export class VoxeraClient extends EventEmitter<VoxeraEvents> {
    * Sends transcript + optional prompt to AI for a text response, no audio/TTS.
    */
   async askAiText(sessionId: string, prompt?: string): Promise<any> {
-    return this.socket?.emitWithAck('ask-ai-text', { sessionId, prompt });
+    return this.emitEncrypted('ask-ai-text', { sessionId, prompt });
   }
 
   /**
    * Enable/disable waiting room (host only)
    */
   async enableWaitingRoom(sessionId: string, enabled: boolean): Promise<any> {
-    return this.socket?.emitWithAck('enable-waiting-room', { sessionId, enabled });
+    return this.emitEncrypted('enable-waiting-room', { sessionId, enabled });
   }
 
   /**
    * Admit a participant from the waiting room (host only)
    */
   async admitParticipant(sessionId: string, targetClientId: string): Promise<any> {
-    return this.socket?.emitWithAck('admit-participant', { sessionId, targetClientId });
+    return this.emitEncrypted('admit-participant', { sessionId, targetClientId });
   }
 
   /**
    * Deny a participant from the waiting room (host only)
    */
   async denyParticipant(sessionId: string, targetClientId: string): Promise<any> {
-    return this.socket?.emitWithAck('deny-participant', { sessionId, targetClientId });
+    return this.emitEncrypted('deny-participant', { sessionId, targetClientId });
   }
 
   /**
    * Admit all waiting room participants (host only)
    */
   async admitAll(sessionId: string): Promise<any> {
-    return this.socket?.emitWithAck('admit-all', { sessionId });
+    return this.emitEncrypted('admit-all', { sessionId });
   }
 
   // ─── PHASE 2: AI DIFFERENTIATOR METHODS ───────────────────────────
@@ -442,56 +454,56 @@ export class VoxeraClient extends EventEmitter<VoxeraEvents> {
    * Generate an AI summary of the current meeting transcript
    */
   async generateSummary(sessionId: string): Promise<any> {
-    return this.socket?.emitWithAck('generate-summary', { sessionId });
+    return this.emitEncrypted('generate-summary', { sessionId });
   }
 
   /**
    * Generate comprehensive AI meeting minutes (host only)
    */
   async generateMinutes(sessionId: string): Promise<any> {
-    return this.socket?.emitWithAck('generate-minutes', { sessionId });
+    return this.emitEncrypted('generate-minutes', { sessionId });
   }
 
   /**
    * Add a bookmark / key moment to the meeting
    */
   async addBookmark(sessionId: string, label: string, isActionItem: boolean = false): Promise<any> {
-    return this.socket?.emitWithAck('add-bookmark', { sessionId, label, isActionItem });
+    return this.emitEncrypted('add-bookmark', { sessionId, label, isActionItem });
   }
 
   /**
    * Remove a bookmark (host only)
    */
   async removeBookmark(sessionId: string, bookmarkId: string): Promise<any> {
-    return this.socket?.emitWithAck('remove-bookmark', { sessionId, bookmarkId });
+    return this.emitEncrypted('remove-bookmark', { sessionId, bookmarkId });
   }
 
   /**
    * Get all bookmarks for the current session
    */
   async getBookmarks(sessionId: string): Promise<any> {
-    return this.socket?.emitWithAck('get-bookmarks', { sessionId });
+    return this.emitEncrypted('get-bookmarks', { sessionId });
   }
 
   /**
    * Get the full transcript for the current session
    */
   async getTranscript(sessionId: string): Promise<any> {
-    return this.socket?.emitWithAck('get-transcript', { sessionId });
+    return this.emitEncrypted('get-transcript', { sessionId });
   }
 
   /**
    * Get all summaries generated for the current session
    */
   async getSummaries(sessionId: string): Promise<any> {
-    return this.socket?.emitWithAck('get-summaries', { sessionId });
+    return this.emitEncrypted('get-summaries', { sessionId });
   }
 
   /**
    * Get meeting minutes for the current session
    */
   async getMinutes(sessionId: string): Promise<any> {
-    return this.socket?.emitWithAck('get-minutes', { sessionId });
+    return this.emitEncrypted('get-minutes', { sessionId });
   }
 
   /**
@@ -1116,6 +1128,12 @@ export class VoxeraClient extends EventEmitter<VoxeraEvents> {
     // Store server configuration for use in WebSocket connection
     if (result.data) {
       this._sessionConfiguration = result.data;
+
+      // Initialize socket payload encryption if key is provided
+      if (result.data.encryptionKey) {
+        this.socketCrypto = new SocketCrypto(result.data.encryptionKey);
+      }
+
       // Return in expected format for backward compatibility
       return {
         ...result,
@@ -1182,8 +1200,9 @@ export class VoxeraClient extends EventEmitter<VoxeraEvents> {
       });
 
       // Handle all incoming Socket.IO messages
-      this.socket.onAny((event, data) => {
-        this.handleSignal({ type: event, ...data });
+      this.socket.onAny(async (event, data) => {
+        const payload = await this.decryptPayload(data);
+        this.handleSignal({ type: event, ...payload });
       });
     });
   }
@@ -1229,8 +1248,9 @@ export class VoxeraClient extends EventEmitter<VoxeraEvents> {
         );
       });
 
-      this.socket.onAny((event, data) => {
-        this.handleSignal({ type: event, ...data });
+      this.socket.onAny(async (event, data) => {
+        const payload = await this.decryptPayload(data);
+        this.handleSignal({ type: event, ...payload });
       });
     });
   }
@@ -1280,10 +1300,17 @@ export class VoxeraClient extends EventEmitter<VoxeraEvents> {
 
       // Handle send transport connect event
       this.sendTransport.on('connect', ({ dtlsParameters }: any, callback: () => void) => {
-        this.socket?.emit('connectTransport', {
+        const data = {
           dtlsParameters,
           transportId: this.sendTransport!.id,
-        });
+        };
+        if (this.socketCrypto) {
+          this.socketCrypto.encrypt(data).then(encrypted => {
+            this.socket?.emit('connectTransport', { _e: 1, d: encrypted });
+          });
+        } else {
+          this.socket?.emit('connectTransport', data);
+        }
         callback();
       });
 
@@ -1300,11 +1327,14 @@ export class VoxeraClient extends EventEmitter<VoxeraEvents> {
       // Handle send transport produce event
       this.sendTransport.on('produce', async ({ kind, rtpParameters }: any, callback: (params: { id: string }) => void, errback: (error: Error) => void) => {
         try {
-          const response = await this.socket?.emitWithAck('produce', {
+          const produceData = {
             kind,
             rtpParameters,
             transportId: this.sendTransport!.id,
-          });
+          };
+          const payload = await this.encryptPayload(produceData);
+          const rawResponse = await this.socket?.emitWithAck('produce', payload);
+          const response = await this.decryptPayload(rawResponse);
           // Server may return { error: '...' } instead of throwing — treat it as a failure
           if (!response || response.error) {
             console.error('[Maya] ❌ Server rejected produce:', response?.error ?? 'no response');
@@ -1425,10 +1455,17 @@ export class VoxeraClient extends EventEmitter<VoxeraEvents> {
       // Handle receive transport connect event  
       this.recvTransport.on('connect', ({ dtlsParameters }: any, callback: () => void) => {
         console.log('[Maya] 🔗 Recv transport connect event fired, sending DTLS params to server');
-        this.socket?.emit('connectTransport', {
+        const data = {
           dtlsParameters,
           transportId: this.recvTransport!.id,
-        });
+        };
+        if (this.socketCrypto) {
+          this.socketCrypto.encrypt(data).then(encrypted => {
+            this.socket?.emit('connectTransport', { _e: 1, d: encrypted });
+          });
+        } else {
+          this.socket?.emit('connectTransport', data);
+        }
         callback();
         console.log('[Maya] ✅ Recv transport connect callback completed');
       });
@@ -1439,7 +1476,8 @@ export class VoxeraClient extends EventEmitter<VoxeraEvents> {
       });
 
       // 7. Listen for new producers (AI or participant audio/video)
-      this.socket?.on('new-producer', async ({ producerId, source, kind, producerClientId }: { producerId: string; source?: string; kind?: string; producerClientId?: string }) => {
+      this.socket?.on('new-producer', async (raw: any) => {
+        const { producerId, source, kind, producerClientId } = await this.decryptPayload(raw) as { producerId: string; source?: string; kind?: string; producerClientId?: string };
         console.log('[Maya] 🎵 New producer detected:', producerId, 'source:', source, 'kind:', kind, 'from:', producerClientId);
 
         // Clean up old AI consumers and audio elements before creating new one
@@ -1542,7 +1580,8 @@ export class VoxeraClient extends EventEmitter<VoxeraEvents> {
       });
 
       // 8. Listen for conversation messages from server
-      this.socket?.on('conversation-message', (data: { sessionId: string; role: 'user' | 'assistant'; content: string; timestamp: number; displayName?: string }) => {
+      this.socket?.on('conversation-message', async (raw: any) => {
+        const data = await this.decryptPayload(raw) as { sessionId: string; role: 'user' | 'assistant'; content: string; timestamp: number; displayName?: string };
         console.log('[Maya] 💬 Conversation message received:', data);
 
         const messageId = `${data.role}-${data.timestamp}-${Math.random().toString(36).substr(2, 6)}`;
@@ -1850,10 +1889,48 @@ export class VoxeraClient extends EventEmitter<VoxeraEvents> {
     }
   }
 
+  /* ─── Socket Encryption Helpers ──────────────────────────────────── */
+
+  /**
+   * Decrypt incoming socket payload if encrypted, otherwise return as-is.
+   */
+  private async decryptPayload(data: any): Promise<any> {
+    if (this.socketCrypto && isEncryptedPayload(data)) {
+      const decrypted = await this.socketCrypto.decrypt(data.d);
+      return decrypted !== null ? decrypted : data;
+    }
+    return data;
+  }
+
+  /**
+   * Wrap data in encrypted envelope if crypto is available.
+   */
+  private async encryptPayload(data: any): Promise<any> {
+    if (this.socketCrypto) {
+      return { _e: 1, d: await this.socketCrypto.encrypt(data) };
+    }
+    return data;
+  }
+
+  /**
+   * Emit with ack, encrypting outgoing and decrypting the response.
+   */
+  private async emitEncrypted<T = any>(event: string, data: any): Promise<T> {
+    const payload = await this.encryptPayload(data);
+    const response = await this.socket?.emitWithAck(event, payload);
+    return await this.decryptPayload(response) as T;
+  }
+
   private sendSignal(signal: Record<string, unknown>): void {
     if (this.socket?.connected) {
       const { type, ...data } = signal;
-      this.socket.emit(type as string, data);
+      if (this.socketCrypto) {
+        this.socketCrypto.encrypt(data).then(encrypted => {
+          this.socket?.emit(type as string, { _e: 1, d: encrypted });
+        });
+      } else {
+        this.socket.emit(type as string, data);
+      }
     }
   }
 
@@ -2081,7 +2158,7 @@ export class VoxeraClient extends EventEmitter<VoxeraEvents> {
    * If the server doesn't respond within `timeoutMs`, rejects with an error.
    */
   private emitWithTimeout<T = any>(event: string, data: any, timeoutMs = 10000): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
+    return new Promise<T>(async (resolve, reject) => {
       const timer = setTimeout(() => {
         reject(new VoxeraError(
           `Server did not respond to '${event}' within ${timeoutMs}ms`,
@@ -2089,13 +2166,16 @@ export class VoxeraClient extends EventEmitter<VoxeraEvents> {
         ));
       }, timeoutMs);
 
-      this.socket?.emitWithAck(event, data).then((result: T) => {
+      try {
+        const payload = await this.encryptPayload(data);
+        const result = await this.socket?.emitWithAck(event, payload);
         clearTimeout(timer);
-        resolve(result);
-      }).catch((err: any) => {
+        const decrypted = await this.decryptPayload(result);
+        resolve(decrypted as T);
+      } catch (err: any) {
         clearTimeout(timer);
         reject(err);
-      });
+      }
     });
   }
 }
